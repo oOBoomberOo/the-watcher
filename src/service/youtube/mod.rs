@@ -109,14 +109,14 @@ impl YouTube {
 
         let error = match response {
             Ok(video) => return Ok(video),
-            Err(ApiError { message }) => YouTubeError::Api { video_id, message },
-            Err(Message { message }) => YouTubeError::Fetch { video_id, message },
+            Err(ApiError { message }) => YouTubeError::ExternalApi { video_id, message },
+            Err(Message { message }) => YouTubeError::DuringFetch { video_id, message },
             Err(SerdeError { original, error }) => YouTubeError::InvalidVideoBody {
                 video_id,
                 original,
                 source: error,
             },
-            Err(Fetch { error }) => YouTubeError::Fetch {
+            Err(Fetch { error }) => YouTubeError::DuringFetch {
                 video_id,
                 message: error.to_string(),
             },
@@ -132,7 +132,7 @@ impl YouTube {
     fn timestamp_from_unix(unix_time: u64) -> Result<DateTime<Utc>> {
         Utc.timestamp_opt(unix_time as i64, 0)
             .earliest()
-            .context(InvalidTimestampSnafu {
+            .context(ParseInvalidTimestampSnafu {
                 timestamp: unix_time,
             })
     }
