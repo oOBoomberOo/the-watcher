@@ -1,0 +1,83 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'the-watcher'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=the-watcher"
+                ],
+                "filter": {
+                    "name": "the-watcher",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'the-watcher'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=the-watcher",
+                    "--package=the-watcher"
+                ],
+                "filter": {
+                    "name": "the-watcher",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'the-watcher'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=the-watcher",
+                    "--package=the-watcher"
+                ],
+                "filter": {
+                    "name": "the-watcher",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'get_youtube_statistics'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=get_youtube_statistics",
+                    "--package=the-watcher"
+                ],
+                "filter": {
+                    "name": "get_youtube_statistics",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
