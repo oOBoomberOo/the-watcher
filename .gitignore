@@ -1,1 +1,5 @@
 /target
+/vendor
+/.cargo
+.env
+dev.db

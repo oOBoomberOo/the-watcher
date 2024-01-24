@@ -2,7 +2,7 @@ use std::{collections::HashMap, hash::Hash};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimingMap<K: Hash + Eq, V, T> {
     items: HashMap<K, V>,
     timetable: HashMap<K, T>,
@@ -91,6 +91,18 @@ where
     }
 }
 
+impl<K, V, T> Default for TimingMap<K, V, T>
+where
+    K: Hash + Eq,
+{
+    fn default() -> Self {
+        Self {
+            items: HashMap::default(),
+            timetable: HashMap::default(),
+        }
+    }
+}
+
 impl<K, V, T> FromIterator<(K, V)> for TimingMap<K, V, T>
 where
     K: Hash + Eq,
@@ -175,7 +187,7 @@ mod tests {
         let mut map: TimingMap<char, &'static str, i32> = TimingMap::default();
         map.insert('A', "Ina Norman");
         map.refresh('A', 1);
-        
+
         let expired_items = collect! { map.drain_expired(1) };
         assert_eq!(expired_items, vec![('A', "Ina Norman")]);
 

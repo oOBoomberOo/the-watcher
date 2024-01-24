@@ -1,5 +1,3 @@
-use std::num::NonZeroI64;
-
 use super::*;
 
 pub type TrackerId = Uuid;
@@ -17,7 +15,7 @@ pub struct Tracker {
     pub track_at: Timestamp,
     pub track_duration: TrackDuration,
     #[new(default)]
-    pub track_target: Option<NonZeroI64>,
+    pub track_target: Option<i64>,
     #[new(value = "true")]
     pub active: bool,
 }
@@ -34,16 +32,21 @@ impl Tracker {
 
     pub fn has_reached_target(&self, stats: &Stats) -> bool {
         self.track_target
-            .map_or(false, |target| stats.views >= target.get())
+            .map_or(false, |target| stats.views >= target)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-pub struct TrackDuration(i64);
+pub struct TrackDuration(pub std::time::Duration);
 
 impl TrackDuration {
+    pub fn seconds(self) -> i64 {
+        self.0.as_secs() as i64
+    }
+
     pub fn round_up_from(self, duration: Duration) -> Duration {
-        let n = duration.num_seconds() / self.0;
-        Duration::seconds(self.0 * (n + 1))
+        let sec = self.seconds();
+        let n = duration.num_seconds() / sec;
+        Duration::seconds(sec * (n + 1))
     }
 }
