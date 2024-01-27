@@ -135,10 +135,7 @@ mod tests {
         let result = tracker_descriptor()
             .parse("fc396eb2-1b9b-5a33-8a6d-4b1f47d82551")
             .unwrap();
-        assert_eq!(
-            result,
-            tracker_id(uuid!("fc396eb2-1b9b-5a33-8a6d-4b1f47d82551"))
-        );
+        assert_eq!(result, tracker_id(uuid!("fc396eb2-1b9b-5a33-8a6d-4b1f47d82551")));
     }
 
     #[test]

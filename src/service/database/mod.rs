@@ -138,9 +138,7 @@ pub mod orm {
         }
 
         pub async fn update(
-            id: TrackerId,
-            payload: UpdateTracker,
-            db: &Backend,
+            id: TrackerId, payload: UpdateTracker, db: &Backend,
         ) -> Result<Tracker> {
             tracing::debug!(tracker_id = %id, tracker = ?payload, "updated tracker in database");
             db.update(("trackers", id.to_string()))

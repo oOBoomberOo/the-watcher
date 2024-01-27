@@ -10,9 +10,9 @@ use crate::service::{
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    pub database_url: String,
-    pub database_namespace: String,
-    pub database_database: String,
+    pub surreal_url: String,
+    pub surreal_namespace: String,
+    pub surreal_database: String,
     pub holodex_api_key: String,
     #[serde(default = "default::invidious_instance")]
     pub invidious_instance: String,
@@ -24,9 +24,9 @@ impl Config {
     }
 
     pub async fn database(&self) -> Result<Backend, ConfigError> {
-        let database_url = self.database_url.clone();
-        let database_namespace = self.database_namespace.clone();
-        let database = self.database_database.clone();
+        let database_url = self.surreal_url.clone();
+        let database_namespace = self.surreal_namespace.clone();
+        let database = self.surreal_database.clone();
 
         Backend::new(&database_url, &database_namespace, &database)
             .await

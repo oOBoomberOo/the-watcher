@@ -51,7 +51,7 @@ impl YouTube {
         let (content, stats) =
             tokio::join!(self.holodex_video(video_id), self.invidious_video(video_id));
         let video = content.map(|content| content.video);
-        
+
         tracing::debug!(holodex = ?video, invidious = ?stats, "fetched video data from holodex and invidious");
         let stats = stats?;
 

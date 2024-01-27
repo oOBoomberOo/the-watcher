@@ -1,4 +1,5 @@
 use dashmap::DashMap;
+use derive_new::new;
 use itertools::Itertools;
 use snafu::Snafu;
 use std::sync::Arc;
@@ -11,27 +12,18 @@ use super::youtube::{YouTube, YouTubeError};
 use crate::model::{now, Stats, Tracker, TrackerId};
 use crate::service::database::orm;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, new)]
 pub struct TrackerManager {
+    #[new(default)]
     trackers: Arc<DashMap<TrackerId, TrackerInfo>>,
     youtube: YouTube,
     database: Backend,
 }
 
 impl TrackerManager {
-    pub fn new(youtube: YouTube, database: Backend) -> Self {
-        Self {
-            trackers: Arc::new(DashMap::new()),
-            youtube,
-            database,
-        }
-    }
-
     #[instrument(skip(self))]
     pub async fn update(
-        &self,
-        tracker_id: TrackerId,
-        option: UpdateTracker,
+        &self, tracker_id: TrackerId, option: UpdateTracker,
     ) -> Result<(), TrackerError> {
         tracing::info!(tracker_id = ?tracker_id, option = ?option, "update tracker `{}`", tracker_id);
         let tracker = orm::tracker::update(tracker_id.clone(), option, &self.database).await?;
