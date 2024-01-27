@@ -1,5 +1,6 @@
 /target
 /vendor
 /.cargo
+/.export
+/database
 .env
-dev.db

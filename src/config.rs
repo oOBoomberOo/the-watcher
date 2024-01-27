@@ -2,6 +2,7 @@ use derive_new::new;
 use invidious::MethodAsync;
 use serde::Deserialize;
 use snafu::{ResultExt, Snafu};
+use url::Url;
 
 use crate::service::{
     database::{Backend, BackendError},
@@ -10,9 +11,7 @@ use crate::service::{
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    pub surreal_url: String,
-    pub surreal_namespace: String,
-    pub surreal_database: String,
+    pub surreal_database_url: Url,
     pub holodex_api_key: String,
     #[serde(default = "default::invidious_instance")]
     pub invidious_instance: String,
@@ -24,17 +23,8 @@ impl Config {
     }
 
     pub async fn database(&self) -> Result<Backend, ConfigError> {
-        let database_url = self.surreal_url.clone();
-        let database_namespace = self.surreal_namespace.clone();
-        let database = self.surreal_database.clone();
-
-        Backend::new(&database_url, &database_namespace, &database)
-            .await
-            .context(BackendSnafu {
-                database_url,
-                database_namespace,
-                database,
-            })
+        let database_url = self.surreal_database_url.clone();
+        Backend::connect(database_url).await.context(BackendSnafu)
     }
 
     pub fn holodex(&self) -> Result<holodex::Client, ConfigError> {
@@ -54,17 +44,8 @@ impl Config {
 
 #[derive(Debug, Snafu, new)]
 pub enum ConfigError {
-    #[snafu(display(
-        "faild to create database connection from url {}: {}",
-        database_url,
-        source
-    ))]
-    Backend {
-        database_url: String,
-        database_namespace: String,
-        database: String,
-        source: BackendError,
-    },
+    #[snafu(display("faild to connect to the database because {}", source))]
+    Backend { source: BackendError },
 
     #[snafu(display("faild to load config from env: {}", source))]
     Env { source: envy::Error },

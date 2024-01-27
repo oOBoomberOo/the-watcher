@@ -1,12 +1,30 @@
 use crate::model::*;
 use derive_new::new;
+use snafu::Snafu;
 use snafu::{OptionExt, ResultExt};
-use std::ops::Deref;
-use surrealdb::{engine::any::Any, Surreal};
+use std::{collections::HashMap, ops::Deref};
+use surrealdb::{engine::any::Any, opt::auth::Database, Surreal};
+use url::Url;
 
-pub use error::*;
+pub type Result<T, E = BackendError> = std::result::Result<T, E>;
 
-mod error;
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub(super)))]
+pub enum BackendError {
+    #[snafu(display("failed to query the database: {source}"))]
+    DatabaseQuery { source: surrealdb::Error },
+    #[snafu(display("failed to deserialize the database response: {source}"))]
+    DatabaseDeserialize { source: surrealdb::Error },
+    #[snafu(display("failed to parse the database response, response is empty"))]
+    EmptyQuery,
+
+    #[snafu(display("cannot connect to the database `{url}`: {source}"))]
+    DatabaseConnection { url: Url, source: surrealdb::Error },
+    #[snafu(display("url `{url}` is missing a namespace parameter (ns)"))]
+    NoNamespace { url: Url },
+    #[snafu(display("url `{url}` is missing a database parameter (db)"))]
+    NoDatabase { url: Url },
+}
 
 #[derive(Debug, Clone)]
 pub struct Backend {
@@ -14,27 +32,36 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub async fn new(address: &str, namespace: &str, database_name: &str) -> Result<Self> {
-        let database =
-            surrealdb::engine::any::connect(address)
-                .await
-                .context(DatabaseConnectionSnafu {
-                    url: address.to_string(),
-                    namespace: namespace.to_string(),
-                    database: database_name.to_string(),
-                })?;
+    pub async fn connect(url: Url) -> Result<Self> {
+        let username = url.username();
+        let password = url.password().unwrap_or("");
 
-        database
-            .use_ns(namespace)
-            .use_db(database_name)
+        let queries: HashMap<String, String> = url
+            .query_pairs()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+
+        let namespace = queries
+            .get("ns")
+            .context(NoNamespaceSnafu { url: url.clone() })?;
+        let database = queries
+            .get("db")
+            .context(NoDatabaseSnafu { url: url.clone() })?;
+
+        let db = surrealdb::engine::any::connect(url.as_str())
             .await
-            .context(DatabaseConnectionSnafu {
-                url: address.to_string(),
-                namespace: namespace.to_string(),
-                database: database_name.to_string(),
-            })?;
+            .context(DatabaseConnectionSnafu { url: url.clone() })?;
 
-        Ok(Self { database })
+        db.signin(Database {
+            username,
+            password,
+            namespace,
+            database,
+        })
+        .await
+        .context(DatabaseConnectionSnafu { url: url.clone() })?;
+
+        Ok(Self { database: db })
     }
 }
 

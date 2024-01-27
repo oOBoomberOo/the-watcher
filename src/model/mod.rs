@@ -1,9 +1,8 @@
-use std::ops::Sub;
-
 use chrono::Duration;
 use derive_more::{AsRef, Deref, From};
 use derive_new::new;
 use serde::{Deserialize, Serialize};
+use std::ops::Sub;
 use uuid::Uuid;
 
 pub use crate::service::youtube::VideoId;
