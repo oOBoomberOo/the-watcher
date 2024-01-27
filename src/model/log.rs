@@ -21,6 +21,7 @@ impl From<LogData> for Log {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, new)]
+#[serde(tag = "type")]
 pub enum LogData {
     TrackerCreated {
         tracker: Tracker,
@@ -40,7 +41,7 @@ pub enum LogData {
         new_video_id: VideoId,
     },
     TrackerCompleted {
-        tracker: Tracker,
+        tracker_id: TrackerId,
         track_target: Option<NonZeroI64>,
         completed_stats: Stats,
     },

@@ -51,6 +51,8 @@ impl YouTube {
         let (content, stats) =
             tokio::join!(self.holodex_video(video_id), self.invidious_video(video_id));
         let video = content.map(|content| content.video);
+        
+        tracing::debug!(holodex = ?video, invidious = ?stats, "fetched video data from holodex and invidious");
         let stats = stats?;
 
         let is_premiere = Self::is_premiere(&stats);
@@ -80,6 +82,7 @@ impl YouTube {
 
     #[instrument(skip(self))]
     async fn holodex_video(&self, video_id: &VideoId) -> Option<VideoFull> {
+        tracing::info!("fetch video `{}` from holodex", video_id);
         // holodex used sync API so we do it in blocking task threadpool
         let fetch_video_task = tokio::task::spawn_blocking({
             let holodex = self.holodex.clone();
@@ -103,6 +106,7 @@ impl YouTube {
     #[instrument(skip(self))]
     async fn invidious_video(&self, video_id: &VideoId) -> Result<InvidiousVideo> {
         let video_id = video_id.clone();
+        tracing::info!("fetch video `{}` from invidious", video_id);
         let response = self.invidious.video(video_id.as_ref(), None).await;
 
         use invidious::InvidiousError::*;

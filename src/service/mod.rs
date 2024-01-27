@@ -1,5 +1,3 @@
 pub mod database;
-pub mod timing_map;
-pub mod tracker;
-pub mod watcher;
+pub mod tracker_manager;
 pub mod youtube;
