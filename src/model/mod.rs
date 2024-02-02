@@ -1,7 +1,6 @@
 use chrono::Duration;
 use derive_new::new;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::database::*;
 use crate::*;
@@ -25,13 +24,14 @@ define_relation! {
         where "SELECT * FROM stats WHERE tracker_id = $id ORDER BY created_at DESC"
 }
 
-pub use crate::service::youtube::VideoId;
 pub use log::*;
 pub use stats::*;
 pub use timestamp::*;
 pub use tracker::*;
+pub use video_id::*;
 
 mod log;
 mod stats;
 mod timestamp;
 mod tracker;
+mod video_id;

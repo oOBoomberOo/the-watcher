@@ -1,20 +1,19 @@
+use chrono::{DateTime, Utc};
 use derivative::Derivative;
 use derive_new::new as New;
-use serde::{Deserialize, Serialize};
-
-use chrono::{DateTime, Utc};
 use holodex::model::{VideoFull, VideoStatus};
 use holodex::Client as HolodexClient;
 use invidious::{video::Video as InvidiousVideo, ClientAsync as InvidiousClient, ClientAsyncTrait};
+use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 use std::sync::Arc;
 use tracing::instrument;
 
+use crate::model::{ParseVideoId, VideoId};
+
 pub use error::*;
-pub use video_id::*;
 
 mod error;
-mod video_id;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, New)]
 pub struct VideoInfo {

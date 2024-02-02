@@ -1,6 +1,8 @@
+use snafu::Snafu;
+
 use super::*;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, New)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, new)]
 #[serde(transparent)]
 pub struct VideoId(holodex::model::id::VideoId);
 
@@ -11,15 +13,13 @@ impl VideoId {
 }
 
 impl std::str::FromStr for VideoId {
-    type Err = YouTubeError;
+    type Err = ParseVideoId;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         input
             .parse()
             .map(VideoId)
-            .map_err(|_| YouTubeError::ParseVideoId {
-                text: input.to_string(),
-            })
+            .map_err(|_| ParseVideoId::new(input.to_string()))
     }
 }
 
@@ -33,4 +33,10 @@ impl std::convert::AsRef<str> for VideoId {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Snafu, new)]
+#[snafu(display("Failed to parse video id: {}", text))]
+pub struct ParseVideoId {
+    pub text: String,
 }
