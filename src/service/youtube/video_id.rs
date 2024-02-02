@@ -1,6 +1,7 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, New)]
+#[serde(transparent)]
 pub struct VideoId(holodex::model::id::VideoId);
 
 impl VideoId {

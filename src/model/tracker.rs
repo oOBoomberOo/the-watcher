@@ -1,20 +1,11 @@
+use self::service::youtube::VideoInfo;
 use super::*;
 
-use surrealdb::sql::Thing;
-
-pub type TrackerId = Thing;
-
-pub fn new_tracker_id() -> TrackerId {
-    tracker_id(Uuid::new_v4())
-}
-
-pub fn tracker_id(uuid: Uuid) -> TrackerId {
-    ("trackers".to_string(), uuid.to_string()).into()
-}
+pub type TrackerId = Record<Tracker>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, new)]
 pub struct Tracker {
-    #[new(value = "new_tracker_id()")]
+    #[new(default)]
     pub id: TrackerId,
     #[new(value = "now()")]
     pub created_at: Timestamp,
@@ -44,14 +35,14 @@ impl Tracker {
         self.track_target
             .map_or(false, |target| stats.views >= target)
     }
+
+    pub fn create_stats(&self, video_info: VideoInfo) -> Stats {
+        Stats::new(self.id.clone(), video_info.id, video_info.views, video_info.likes)
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TrackDuration(
-    #[serde(
-        serialize_with = "TrackDuration::serializer",
-        deserialize_with = "TrackDuration::deserializer"
-    )]
     pub std::time::Duration,
 );
 
@@ -73,19 +64,18 @@ impl TrackDuration {
     pub fn duration(self) -> Duration {
         Duration::seconds(self.seconds())
     }
+}
 
-    pub fn serializer<S>(duration: &std::time::Duration, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_i64(duration.as_secs() as i64)
+
+impl Serialize for TrackDuration {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_i64(self.0.as_secs() as i64)
     }
+}
 
-    pub fn deserializer<'de, D>(deserializer: D) -> Result<std::time::Duration, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
+impl<'de> Deserialize<'de> for TrackDuration {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let seconds = i64::deserialize(deserializer)?;
-        Ok(std::time::Duration::from_secs(seconds as u64))
+        Ok(TrackDuration::from_seconds(seconds))
     }
 }

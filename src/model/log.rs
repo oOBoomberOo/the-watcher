@@ -5,18 +5,16 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, new)]
 pub struct Log {
-    pub id: Uuid,
+    #[new(default)]
+    pub id: Record<Log>,
+    #[new(value = "now()")]
     pub created_at: Timestamp,
     pub message: LogData,
 }
 
 impl From<LogData> for Log {
     fn from(message: LogData) -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            created_at: now(),
-            message,
-        }
+        Self::new(message)
     }
 }
 

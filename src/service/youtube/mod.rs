@@ -2,11 +2,11 @@ use derivative::Derivative;
 use derive_new::new as New;
 use serde::{Deserialize, Serialize};
 
-use chrono::{DateTime, TimeZone, Utc};
-use holodex::model::VideoFull;
+use chrono::{DateTime, Utc};
+use holodex::model::{VideoFull, VideoStatus};
 use holodex::Client as HolodexClient;
 use invidious::{video::Video as InvidiousVideo, ClientAsync as InvidiousClient, ClientAsyncTrait};
-use snafu::OptionExt;
+use snafu::ResultExt;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -17,15 +17,18 @@ mod error;
 mod video_id;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, New)]
-pub struct VideoData {
+pub struct VideoInfo {
+    pub id: VideoId,
+    pub views: i64,
+    pub likes: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, New)]
+pub struct UploadInfo {
     pub id: String,
     pub title: String,
-    pub views: u64,
-    pub likes: u32,
     pub is_premiere: bool,
-    pub published_at: Option<DateTime<Utc>>,
-    /// When the video is available to watch, this can be different from published_at if the video is premiere
-    pub available_at: DateTime<Utc>,
+    pub published_at: DateTime<Utc>,
 }
 
 #[derive(Clone, Derivative)]
@@ -45,43 +48,42 @@ impl YouTube {
         }
     }
 
-    /// Get video data from holodex and substitute with invidious data if holodex doesn't have it
     #[instrument(skip(self))]
-    pub async fn video(&self, video_id: &VideoId) -> Result<VideoData> {
-        let (content, stats) =
-            tokio::join!(self.holodex_video(video_id), self.invidious_video(video_id));
-        let video = content.map(|content| content.video);
+    pub async fn upload_info(&self, video_id: &VideoId) -> Result<UploadInfo> {
+        let video = self.holodex_video(video_id).await?.video;
 
-        tracing::debug!(holodex = ?video, invidious = ?stats, "fetched video data from holodex and invidious");
-        let stats = stats?;
+        let is_premiere = video.status == VideoStatus::Upcoming;
+        let published_at = video.published_at.unwrap_or(video.available_at);
 
-        let is_premiere = Self::is_premiere(&stats);
-        let id = video.as_ref().map_or(stats.id, |x| x.id.to_string());
-        let title = video.as_ref().map_or(stats.title, |x| x.title.clone());
-        let views = stats.views;
-        let likes = stats.likes;
-
-        let published_time = Self::timestamp_from_unix(stats.published)?;
-
-        let published_at = video
-            .as_ref()
-            .and_then(|x| x.published_at)
-            .or(Some(published_time));
-        let available_at = video.as_ref().map_or(published_time, |x| x.available_at);
-
-        Ok(VideoData {
-            id,
-            title,
-            views,
-            likes,
+        let upload_info = UploadInfo {
+            id: video.id.to_string(),
+            title: video.title,
             is_premiere,
             published_at,
-            available_at,
-        })
+        };
+
+        return Ok(upload_info);
+    }
+
+    /// Get video data from holodex and substitute with invidious data if holodex doesn't have it
+    #[instrument(skip(self))]
+    pub async fn video(&self, video_id: &VideoId) -> Result<VideoInfo> {
+        let stats = self.invidious_video(video_id).await?;
+
+        let views = stats.views as i64;
+        let likes = stats.likes.into();
+
+        let video_data = VideoInfo {
+            id: video_id.clone(),
+            likes,
+            views,
+        };
+
+        Ok(video_data)
     }
 
     #[instrument(skip(self))]
-    async fn holodex_video(&self, video_id: &VideoId) -> Option<VideoFull> {
+    async fn holodex_video(&self, video_id: &VideoId) -> Result<VideoFull> {
         tracing::info!("fetch video `{}` from holodex", video_id);
         // holodex used sync API so we do it in blocking task threadpool
         let fetch_video_task = tokio::task::spawn_blocking({
@@ -91,16 +93,14 @@ impl YouTube {
         });
 
         let Ok(video) = fetch_video_task.await else {
-            tracing::warn!(%video_id, "failed to fetch video from holodex");
-            return None;
+            return Err(YouTubeError::VideoUnavailable {
+                video_id: video_id.clone(),
+            });
         };
 
-        let Ok(video) = video else {
-            tracing::warn!(%video_id, "video is not available on holodex");
-            return None;
-        };
-
-        Some(video)
+        video.context(HolodexApiSnafu {
+            video_id: video_id.clone(),
+        })
     }
 
     #[instrument(skip(self))]
@@ -127,17 +127,5 @@ impl YouTube {
         };
 
         Err(error)
-    }
-
-    fn is_premiere(video: &InvidiousVideo) -> bool {
-        video.upcoming && !video.live
-    }
-
-    fn timestamp_from_unix(unix_time: u64) -> Result<DateTime<Utc>> {
-        Utc.timestamp_opt(unix_time as i64, 0)
-            .earliest()
-            .context(ParseInvalidTimestampSnafu {
-                timestamp: unix_time,
-            })
     }
 }

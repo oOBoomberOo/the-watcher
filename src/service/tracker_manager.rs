@@ -1,36 +1,40 @@
 use dashmap::DashMap;
 use derive_new::new;
 use itertools::Itertools;
-use snafu::Snafu;
+use snafu::{OptionExt as _, Snafu};
 use std::sync::Arc;
 use tokio::select;
 use tokio::time::{interval_at, Instant, Interval};
 use tracing::instrument;
 
-use super::database::{orm::tracker::UpdateTracker, Backend, BackendError};
 use super::youtube::{YouTube, YouTubeError};
-use crate::model::{now, Stats, Tracker, TrackerId};
-use crate::service::database::orm;
+use crate::database::Database;
+use crate::database::DatabaseError;
+use crate::model::{now, Tracker, TrackerId};
 
 #[derive(Debug, Clone, new)]
 pub struct TrackerManager {
     #[new(default)]
     trackers: Arc<DashMap<TrackerId, TrackerInfo>>,
     youtube: YouTube,
-    database: Backend,
+    database: Database,
 }
 
 impl TrackerManager {
     #[instrument(skip(self))]
-    pub async fn update(
-        &self, tracker_id: TrackerId, option: UpdateTracker,
-    ) -> Result<(), TrackerError> {
-        tracing::info!(tracker_id = ?tracker_id, option = ?option, "update tracker `{}`", tracker_id);
-        let tracker = orm::tracker::update(tracker_id.clone(), option, &self.database).await?;
+    pub async fn update(&self, tracker: Tracker) -> Result<(), TrackerError> {
+        let id = tracker.id.clone();
+        tracing::info!(tracker_id = ?id, changes = ?tracker, "update tracker `{}`", id);
 
-        if let Some((_id, tracker)) = self.trackers.remove(&tracker_id) {
+        if let Some((_id, tracker)) = self.trackers.remove(&id) {
             tracker.stop().await;
         }
+
+        let tracker_id = tracker.id.clone();
+        let tracker = tracker
+            .update(&self.database)
+            .await?
+            .context(MissingTrackerSnafu { id })?;
 
         let info = self.start_task(tracker);
         self.trackers.insert(tracker_id, info);
@@ -48,7 +52,7 @@ impl TrackerManager {
             tracker.stop().await;
         }
 
-        orm::tracker::create(tracker.clone(), &self.database).await?;
+        tracker.clone().create(&self.database).await?;
         let info = self.start_task(tracker);
         self.trackers.insert(tracker_id, info);
 
@@ -65,7 +69,7 @@ impl TrackerManager {
     }
 
     pub async fn fetch_all(&self) -> Result<(), TrackerError> {
-        let trackers = orm::tracker::all(&self.database).await?;
+        let trackers = Tracker::trackers(true, &self.database).await?;
 
         for tracker in trackers {
             self.schedule(tracker).await.ok();
@@ -109,8 +113,8 @@ impl TrackerManager {
     }
 
     async fn run_tracker(&self, tracker: &Tracker) -> Result<(), TrackerError> {
-        let video_data = self.youtube.video(&tracker.video_id).await?;
-        let stats = Stats::from_video_data(tracker, &video_data);
+        let video_info = self.youtube.video(&tracker.video_id).await?;
+        let stats = tracker.create_stats(video_info);
 
         if tracker.has_reached_target(&stats) {
             let tracker_id = tracker.id.clone();
@@ -118,13 +122,9 @@ impl TrackerManager {
             self.cancel(tracker_id).await;
         }
 
-        orm::stats::create(stats, &self.database).await?;
+        stats.create(&self.database).await?;
 
         Ok(())
-    }
-
-    pub(crate) async fn trackers(&self) -> Vec<TrackerId> {
-        self.trackers.iter().map(|x| x.key().clone()).collect_vec()
     }
 }
 
@@ -161,5 +161,8 @@ pub enum TrackerError {
     #[snafu(transparent)]
     YouTube { source: YouTubeError },
     #[snafu(transparent)]
-    Backend { source: BackendError },
+    Database { source: DatabaseError },
+
+    #[snafu(display("tracker `{}` is missing from the database", id))]
+    MissingTracker { id: TrackerId },
 }

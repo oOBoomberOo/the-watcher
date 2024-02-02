@@ -1,46 +1,37 @@
 use chrono::Duration;
-use derive_more::{AsRef, Deref, From};
 use derive_new::new;
 use serde::{Deserialize, Serialize};
-use std::ops::Sub;
 use uuid::Uuid;
 
+use crate::database::*;
+use crate::*;
+use snafu::ResultExt as _;
+
+define_id!("trackers", Tracker: self => &self.id);
+define_id!("stats", Stats: self => &self.id);
+define_id!("logs", Log: self => &self.id);
+
+define_model!(Tracker);
+define_model!(Stats);
+define_model!(Log);
+
+define_relation! {
+    Tracker > trackers(active: bool) > Tracker
+        where "SELECT * FROM trackers WHERE active = $active"
+}
+
+define_relation! {
+    Tracker > stats(id: TrackerId) > Stats
+        where "SELECT * FROM stats WHERE tracker_id = $id ORDER BY created_at DESC"
+}
+
 pub use crate::service::youtube::VideoId;
-
-pub fn now() -> Timestamp {
-    chrono::Utc::now().into()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, new, From, Deref, AsRef)]
-pub struct Timestamp(chrono::DateTime<chrono::Utc>);
-
-impl Serialize for Timestamp {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.to_rfc3339().serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for Timestamp {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(deserializer)?;
-        chrono::DateTime::parse_from_rfc3339(&s)
-            .map(|dt| Self(dt.into()))
-            .map_err(serde::de::Error::custom)
-    }
-}
-
-impl Sub<Timestamp> for Timestamp {
-    type Output = Duration;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        self.0 - rhs.0
-    }
-}
-
 pub use log::*;
 pub use stats::*;
+pub use timestamp::*;
 pub use tracker::*;
 
 mod log;
 mod stats;
+mod timestamp;
 mod tracker;

@@ -3,7 +3,7 @@ use derive_new::new;
 use serde::Serialize;
 use snafu::Snafu;
 
-use crate::service::database::BackendError;
+use crate::database::DatabaseError;
 
 #[derive(Debug, Snafu, Serialize, new)]
 #[non_exhaustive]
@@ -15,7 +15,7 @@ pub enum ApiError {
 
     DatabaseConnection {
         #[serde(skip_serializing)]
-        source: BackendError,
+        source: DatabaseError,
     },
 }
 

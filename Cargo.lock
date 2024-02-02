@@ -1687,6 +1687,7 @@ dependencies = [
  "futures-core",
  "futures-task",
  "futures-util",
+ "num_cpus",
 ]
 
 [[package]]
@@ -1978,6 +1979,27 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "higher"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2f1d4c64c406f4e4d2eccd90314161ab023d11ebaaf52065ba439317b1542d4"
+dependencies = [
+ "futures",
+ "higher-derive",
+]
+
+[[package]]
+name = "higher-derive"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d7d174f730525507af3f96102212ada1906f9d7faf05d582a4fc8a4f987e511"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
 
 [[package]]
 name = "hkdf"
@@ -4832,6 +4854,7 @@ dependencies = [
  "envy",
  "functor_derive",
  "futures",
+ "higher",
  "holodex",
  "invidious",
  "itertools 0.12.0",

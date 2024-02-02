@@ -7,7 +7,9 @@ pub type Result<T, E = YouTubeError> = ::std::result::Result<T, E>;
 #[snafu(visibility(pub))]
 pub enum YouTubeError {
     #[snafu(display("unable to parse unix timestamp: {timestamp}"))]
-    ParseInvalidTimestamp { timestamp: u64 },
+    ParseInvalidTimestamp {
+        timestamp: u64,
+    },
 
     #[snafu(display("malformed response for video `{video_id}`: {source}"))]
     InvalidVideoBody {
@@ -17,11 +19,28 @@ pub enum YouTubeError {
     },
 
     #[snafu(display("API returned error while fetching video `{video_id}`: {message}"))]
-    ExternalApi { video_id: VideoId, message: String },
+    ExternalApi {
+        video_id: VideoId,
+        message: String,
+    },
 
     #[snafu(display("Error occurred while fetching video `{video_id}`: {message}"))]
-    DuringFetch { video_id: VideoId, message: String },
+    DuringFetch {
+        video_id: VideoId,
+        message: String,
+    },
 
     #[snafu(display("invalid video id format: {text}"))]
-    ParseVideoId { text: String },
+    ParseVideoId {
+        text: String,
+    },
+
+    VideoUnavailable {
+        video_id: VideoId,
+    },
+
+    HolodexApi {
+        video_id: VideoId,
+        source: holodex::errors::Error,
+    },
 }

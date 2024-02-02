@@ -4,10 +4,8 @@ use serde::Deserialize;
 use snafu::{ResultExt, Snafu};
 use url::Url;
 
-use crate::service::{
-    database::{Backend, BackendError},
-    youtube::YouTube,
-};
+use crate::database::{Database, DatabaseError};
+use crate::service::youtube::YouTube;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -22,9 +20,9 @@ impl Config {
         envy::from_env::<Self>().context(EnvSnafu)
     }
 
-    pub async fn database(&self) -> Result<Backend, ConfigError> {
+    pub async fn database(&self) -> Result<Database, ConfigError> {
         let database_url = self.surreal_database_url.clone();
-        Backend::connect(database_url).await.context(BackendSnafu)
+        Database::connect(database_url).await.context(DatabaseSnafu)
     }
 
     pub fn holodex(&self) -> Result<holodex::Client, ConfigError> {
@@ -45,7 +43,7 @@ impl Config {
 #[derive(Debug, Snafu, new)]
 pub enum ConfigError {
     #[snafu(display("faild to connect to the database because {}", source))]
-    Backend { source: BackendError },
+    Database { source: DatabaseError },
 
     #[snafu(display("faild to load config from env: {}", source))]
     Env { source: envy::Error },
