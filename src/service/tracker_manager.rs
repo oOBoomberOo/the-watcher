@@ -44,6 +44,10 @@ impl TrackerManager {
 
     #[instrument(skip(self))]
     pub async fn schedule(&self, tracker: Tracker) -> Result<(), TrackerError> {
+        if !tracker.active {
+            return Err(TrackerError::InactiveTracker { id: tracker.id });
+        }
+
         tracing::info!(tracker = ?tracker, "schedule tracker `{}`", tracker.id);
         let tracker_id = tracker.id.clone();
 
@@ -113,7 +117,7 @@ impl TrackerManager {
     }
 
     async fn run_tracker(&self, tracker: &Tracker) -> Result<(), TrackerError> {
-        let video_info = self.youtube.video(&tracker.video_id).await?;
+        let video_info = self.youtube.video_info(&tracker.video_id).await?;
         let stats = tracker.create_stats(video_info);
 
         if tracker.has_reached_target(&stats) {
@@ -165,4 +169,7 @@ pub enum TrackerError {
 
     #[snafu(display("tracker `{}` is missing from the database", id))]
     MissingTracker { id: TrackerId },
+
+    #[snafu(display("attempted to schedule an inactive tracker `{id}`"))]
+    InactiveTracker { id: TrackerId },
 }

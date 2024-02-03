@@ -1,11 +1,12 @@
 use derive_new::new;
 use invidious::MethodAsync;
 use serde::Deserialize;
-use snafu::{ResultExt, Snafu};
+use snafu::{Location, ResultExt, Snafu};
 use url::Url;
 
 use crate::database::{Database, DatabaseError};
 use crate::service::youtube::YouTube;
+use crate::Located;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -42,14 +43,36 @@ impl Config {
 
 #[derive(Debug, Snafu, new)]
 pub enum ConfigError {
-    #[snafu(display("faild to connect to the database because {}", source))]
-    Database { source: DatabaseError },
+    #[snafu(display("{location}: faild to connect to the database because {}", source))]
+    Database {
+        source: DatabaseError,
+        #[snafu(implicit)]
+        location: Location,
+    },
 
-    #[snafu(display("faild to load config from env: {}", source))]
-    Env { source: envy::Error },
+    #[snafu(display("{location}: faild to load config from env: {}", source))]
+    Env {
+        source: envy::Error,
+        #[snafu(implicit)]
+        location: Location,
+    },
 
-    #[snafu(display("faild to create holodex client: {}", source))]
-    Holodex { source: holodex::errors::Error },
+    #[snafu(display("{location} faild to create holodex client: {}", source))]
+    Holodex {
+        source: holodex::errors::Error,
+        #[snafu(implicit)]
+        location: Location,
+    },
+}
+
+impl Located for ConfigError {
+    fn location(&self) -> Location {
+        match self {
+            ConfigError::Database { location, .. }
+            | ConfigError::Env { location, .. }
+            | ConfigError::Holodex { location, .. } => *location,
+        }
+    }
 }
 
 mod default {

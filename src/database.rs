@@ -1,8 +1,7 @@
-
 use std::collections::HashMap;
 
 use derive_new::new;
-use snafu::{OptionExt as _, ResultExt as _, Snafu};
+use snafu::{Location, OptionExt as _, ResultExt as _, Snafu};
 use surrealdb::{
     engine::any::Any,
     opt::{
@@ -14,24 +13,63 @@ use surrealdb::{
 use url::Url;
 
 pub use surrealdb::sql::Thing;
+
+use crate::Located;
 pub type Result<T, E = DatabaseError> = std::result::Result<T, E>;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
 pub enum DatabaseError {
-    #[snafu(display("failed to query the database: {source}"))]
-    DatabaseQuery { source: surrealdb::Error },
-    #[snafu(display("failed to deserialize the database response: {source}"))]
-    DatabaseDeserialize { source: surrealdb::Error },
-    #[snafu(display("failed to parse the database response, response is empty"))]
-    EmptyQuery,
+    #[snafu(display("failed to query the database at {location}: {source}"))]
+    DatabaseQuery {
+        source: surrealdb::Error,
+        #[snafu(implicit)]
+        location: Location,
+    },
+    #[snafu(display("failed to deserialize the database response at {location}: {source}"))]
+    DatabaseDeserialize {
+        source: surrealdb::Error,
+        #[snafu(implicit)]
+        location: Location,
+    },
+    #[snafu(display("failed to parse the database response at {location}: response is empty"))]
+    EmptyQuery {
+        #[snafu(implicit)]
+        location: Location,
+    },
 
-    #[snafu(display("cannot connect to the database `{url}`: {source}"))]
-    DatabaseConnection { url: Url, source: surrealdb::Error },
-    #[snafu(display("url `{url}` is missing a namespace parameter (ns)"))]
-    NoNamespace { url: Url },
-    #[snafu(display("url `{url}` is missing a database parameter (db)"))]
-    NoDatabase { url: Url },
+    #[snafu(display("cannot connect to the database `{url}` at {location}: {source}"))]
+    DatabaseConnection {
+        url: Url,
+        source: surrealdb::Error,
+        #[snafu(implicit)]
+        location: Location,
+    },
+    #[snafu(display("url `{url}` is missing a namespace parameter (ns) at {location}"))]
+    NoNamespace {
+        url: Url,
+        #[snafu(implicit)]
+        location: Location,
+    },
+    #[snafu(display("url `{url}` is missing a database parameter (db) at {location}"))]
+    NoDatabase {
+        url: Url,
+        #[snafu(implicit)]
+        location: Location,
+    },
+}
+
+impl Located for DatabaseError {
+    fn location(&self) -> Location {
+        match self {
+            DatabaseError::DatabaseQuery { location, .. }
+            | DatabaseError::DatabaseDeserialize { location, .. }
+            | DatabaseError::EmptyQuery { location, .. }
+            | DatabaseError::DatabaseConnection { location, .. }
+            | DatabaseError::NoNamespace { location, .. }
+            | DatabaseError::NoDatabase { location, .. } => *location,
+        }
+    }
 }
 
 /// Represents an identifier for a database record.
@@ -59,19 +97,19 @@ pub trait Connection {
     type Database;
 
     /// Establishes a connection to the database.
-    async fn connect(&self) -> Result<Self::Database>;
+    fn connect(&self) -> impl std::future::Future<Output = Result<Self::Database>> + Send;
 }
 
 impl Connection for Url {
     type Database = Surreal<Any>;
 
     /// Connects to the database using the URL. The URL must contain the namespace and database via the `ns` and `db` query parameters.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// use url::Url;
-    /// 
+    ///
     /// #[tokio::main]
     /// async fn main() {
     ///    let url = Url::parse("http://localhost:8080?ns=example&db=example").unwrap();
@@ -91,7 +129,6 @@ impl Connection for Url {
         todo!()
     }
 }
-
 
 /// A trait for converting a type into credentials.
 pub trait AsCredentials {
@@ -170,9 +207,9 @@ impl Database {
     }
 
     /// Create a builder to execute arbitrary SQL code on the database.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// let db = Database::connect("http://localhost:8080?ns=example&db=example").await.unwrap();
     /// let result: Vec<HololiveMember> = db.sql("SELECT name, height, subscriber_count FROM hololive WHERE height < $height AND subscriber_count > $subscribers")
@@ -180,7 +217,7 @@ impl Database {
     ///                 .bind(("subscribers", 1_000_000))
     ///                 .fetch().await?;
     /// ```
-    /// 
+    ///
     /// The `fetch` method can deserialize the result into either a single value (`Option<T>`) or a collection of values (`Vec<T>`).
     pub fn sql(&self, query: impl IntoQuery) -> Query<'_> {
         let query = self.database.query(query);
@@ -219,7 +256,7 @@ impl Query<'_> {
 }
 
 /// A typed record id for a database record. type `T`` must implement [Id] trait so that the table name can be inferred.
-/// 
+///
 /// This type implements [Default] which creates a new record with a random UUID as the identifier.
 #[derive(PartialEq, Eq)]
 pub struct Record<T> {
@@ -228,7 +265,6 @@ pub struct Record<T> {
 }
 
 impl<T: Id> Record<T> {
-
     /// Creates a new `Record` from the specified `id` and inferred the table's name from `T`.
     pub fn new(id: impl Into<surrealdb::sql::Id>) -> Self {
         let inner = Thing {

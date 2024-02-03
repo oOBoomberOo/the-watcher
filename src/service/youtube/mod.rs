@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 use derivative::Derivative;
 use derive_new::new as New;
+use futures::Future;
 use holodex::model::{VideoFull, VideoStatus};
 use holodex::Client as HolodexClient;
 use invidious::{video::Video as InvidiousVideo, ClientAsync as InvidiousClient, ClientAsyncTrait};
 use serde::{Deserialize, Serialize};
-use snafu::ResultExt;
+use snafu::{Location, OptionExt as _, ResultExt};
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -64,9 +65,8 @@ impl YouTube {
         return Ok(upload_info);
     }
 
-    /// Get video data from holodex and substitute with invidious data if holodex doesn't have it
     #[instrument(skip(self))]
-    pub async fn video(&self, video_id: &VideoId) -> Result<VideoInfo> {
+    pub async fn video_info(&self, video_id: &VideoId) -> Result<VideoInfo> {
         let stats = self.invidious_video(video_id).await?;
 
         let views = stats.views as i64;
@@ -81,50 +81,61 @@ impl YouTube {
         Ok(video_data)
     }
 
-    #[instrument(skip(self))]
     async fn holodex_video(&self, video_id: &VideoId) -> Result<VideoFull> {
         tracing::info!("fetch video `{}` from holodex", video_id);
         // holodex used sync API so we do it in blocking task threadpool
         let fetch_video_task = tokio::task::spawn_blocking({
+            let video_id = video_id.clone();
             let holodex = self.holodex.clone();
-            let video_id = video_id.inner().clone();
-            move || holodex.video(&video_id)
+            let raw_id = video_id.inner().clone();
+
+            move || holodex.video(&raw_id).context(HolodexApiSnafu { video_id })
         });
 
-        let Ok(video) = fetch_video_task.await else {
-            return Err(YouTubeError::VideoUnavailable {
-                video_id: video_id.clone(),
-            });
-        };
-
-        video.context(HolodexApiSnafu {
+        fetch_video_task.await.ok().context(VideoUnavailableSnafu {
             video_id: video_id.clone(),
-        })
+        })?
     }
 
-    #[instrument(skip(self))]
-    async fn invidious_video(&self, video_id: &VideoId) -> Result<InvidiousVideo> {
+    #[track_caller]
+    fn invidious_video(
+        &self, video_id: &VideoId,
+    ) -> impl Future<Output = Result<InvidiousVideo>> + '_ {
+        let location = Location::default(); // [track_caller] does not work with async fn
         let video_id = video_id.clone();
-        tracing::info!("fetch video `{}` from invidious", video_id);
-        let response = self.invidious.video(video_id.as_ref(), None).await;
 
-        use invidious::InvidiousError::*;
+        async move {
+            tracing::info!("fetch video `{}` from invidious", video_id);
+            let response = self.invidious.video(video_id.as_ref(), None).await;
 
-        let error = match response {
-            Ok(video) => return Ok(video),
-            Err(ApiError { message }) => YouTubeError::ExternalApi { video_id, message },
-            Err(Message { message }) => YouTubeError::DuringFetch { video_id, message },
-            Err(SerdeError { original, error }) => YouTubeError::InvalidVideoBody {
-                video_id,
-                original,
-                source: error,
-            },
-            Err(Fetch { error }) => YouTubeError::DuringFetch {
-                video_id,
-                message: error.to_string(),
-            },
-        };
+            use invidious::InvidiousError::*;
 
-        Err(error)
+            let error = match response {
+                Ok(video) => return Ok(video),
+                Err(ApiError { message }) => YouTubeError::ExternalApi {
+                    video_id,
+                    message,
+                    location,
+                },
+                Err(Message { message }) => YouTubeError::DuringFetch {
+                    video_id,
+                    message,
+                    location,
+                },
+                Err(SerdeError { original, error }) => YouTubeError::InvalidVideoBody {
+                    video_id,
+                    original,
+                    source: error,
+                    location,
+                },
+                Err(Fetch { error }) => YouTubeError::DuringFetch {
+                    video_id,
+                    message: error.to_string(),
+                    location,
+                },
+            };
+
+            Err(error)
+        }
     }
 }
