@@ -8,8 +8,7 @@ use tokio::time::{interval_at, Instant, Interval};
 use tracing::instrument;
 
 use super::youtube::{YouTube, YouTubeError};
-use crate::database::Database;
-use crate::database::DatabaseError;
+use crate::database::{Database, DatabaseError};
 use crate::model::{now, Tracker, TrackerId};
 
 #[derive(Debug, Clone, new)]

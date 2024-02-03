@@ -1,6 +1,11 @@
 use serde_json::Value;
-use tracing::{field::Visit, level_filters::LevelFilter, Metadata, Subscriber};
-use tracing_subscriber::{filter::filter_fn, layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing::field::Visit;
+use tracing::level_filters::LevelFilter;
+use tracing::{Metadata, Subscriber};
+use tracing_subscriber::filter::filter_fn;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 use crate::database::Database;
 

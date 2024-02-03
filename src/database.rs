@@ -2,14 +2,10 @@ use std::collections::HashMap;
 
 use derive_new::new;
 use snafu::{Location, OptionExt as _, ResultExt as _, Snafu};
-use surrealdb::{
-    engine::any::Any,
-    opt::{
-        auth::{self, Credentials, Jwt, Signin},
-        IntoQuery, IntoResource, QueryResult,
-    },
-    Surreal,
-};
+use surrealdb::engine::any::Any;
+use surrealdb::opt::auth::{self, Credentials, Jwt, Signin};
+use surrealdb::opt::{IntoQuery, IntoResource, QueryResult};
+use surrealdb::Surreal;
 use url::Url;
 
 pub use surrealdb::sql::Thing;

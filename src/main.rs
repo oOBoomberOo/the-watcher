@@ -1,8 +1,6 @@
 use dotenvy::dotenv;
-use the_watcher::{
-    api,
-    config::{Config, ConfigError},
-};
+use the_watcher::api;
+use the_watcher::config::{Config, ConfigError};
 
 #[tokio::main]
 #[snafu::report]

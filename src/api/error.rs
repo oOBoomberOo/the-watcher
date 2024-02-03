@@ -1,13 +1,13 @@
-use axum::{http::StatusCode, response::IntoResponse};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use derive_new::new;
 use serde::Serialize;
 use serde_json::json;
 use snafu::Snafu;
 
-use crate::{
-    database::DatabaseError,
-    service::{tracker_manager::TrackerError, youtube::YouTubeError},
-};
+use crate::database::DatabaseError;
+use crate::service::tracker_manager::TrackerError;
+use crate::service::youtube::YouTubeError;
 
 use super::{TrackerId, VideoId};
 

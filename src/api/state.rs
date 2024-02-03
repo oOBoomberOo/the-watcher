@@ -1,11 +1,11 @@
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
+use std::sync::Arc;
 
 use derive_new::new;
 
-use crate::{
-    database::Database,
-    service::{tracker_manager::TrackerManager, youtube::YouTube},
-};
+use crate::database::Database;
+use crate::service::tracker_manager::TrackerManager;
+use crate::service::youtube::YouTube;
 
 #[derive(Debug, Clone, new)]
 pub struct App {
