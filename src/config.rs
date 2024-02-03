@@ -1,7 +1,10 @@
+use std::net::SocketAddr;
+
 use derive_new::new;
 use invidious::MethodAsync;
 use serde::Deserialize;
 use snafu::{Location, ResultExt, Snafu};
+use tokio::net::TcpListener;
 use url::Url;
 
 use crate::database::{Database, DatabaseError};
@@ -14,6 +17,7 @@ pub struct Config {
     pub holodex_api_key: String,
     #[serde(default = "default::invidious_instance")]
     pub invidious_instance: String,
+    pub host: SocketAddr,
 }
 
 impl Config {
@@ -39,6 +43,10 @@ impl Config {
         let holodex = self.holodex()?;
         Ok(YouTube::new(invidious, holodex))
     }
+
+    pub async fn listener(&self) -> Result<TcpListener, ConfigError> {
+        TcpListener::bind(self.host).await.context(ListenerSnafu)
+    }
 }
 
 #[derive(Debug, Snafu, new)]
@@ -63,6 +71,13 @@ pub enum ConfigError {
         #[snafu(implicit)]
         location: Location,
     },
+
+    #[snafu(display("{location} faild to create listener: {}", source))]
+    Listener {
+        source: std::io::Error,
+        #[snafu(implicit)]
+        location: Location,
+    },
 }
 
 impl Located for ConfigError {
@@ -70,7 +85,8 @@ impl Located for ConfigError {
         match self {
             ConfigError::Database { location, .. }
             | ConfigError::Env { location, .. }
-            | ConfigError::Holodex { location, .. } => *location,
+            | ConfigError::Holodex { location, .. }
+            | ConfigError::Listener { location, .. } => *location,
         }
     }
 }
