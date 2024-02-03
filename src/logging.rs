@@ -4,7 +4,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 use crate::database::Database;
 
-pub fn logger(database: Database) {
+pub fn init(database: Database) {
     let subscriber = tracing_subscriber::fmt::fmt()
         .with_max_level(LevelFilter::TRACE)
         .pretty()

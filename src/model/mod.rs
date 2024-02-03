@@ -8,11 +8,9 @@ use snafu::ResultExt as _;
 
 define_id!("trackers", Tracker: self => &self.id);
 define_id!("stats", Stats: self => &self.id);
-define_id!("logs", Log: self => &self.id);
 
 define_model!(Tracker);
 define_model!(Stats);
-define_model!(Log);
 
 define_relation! {
     Tracker > trackers(active: bool) > Tracker
@@ -24,13 +22,11 @@ define_relation! {
         where "SELECT * FROM stats WHERE tracker_id = $id ORDER BY created_at DESC"
 }
 
-pub use log::*;
 pub use stats::*;
 pub use timestamp::*;
 pub use tracker::*;
 pub use video_id::*;
 
-mod log;
 mod stats;
 mod timestamp;
 mod tracker;
