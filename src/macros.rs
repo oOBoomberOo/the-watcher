@@ -25,22 +25,31 @@ macro_rules! define_model {
                 db.into().select(id).await.context(DatabaseQuerySnafu)
             }
 
-            pub async fn create(&self, db: impl Into<&Database>) -> $crate::database::Result<Vec<Self>> {
-                db.into().create($crate::macros::table::<Self>())
+            pub async fn create(
+                &self, db: impl Into<&Database>,
+            ) -> $crate::database::Result<Vec<Self>> {
+                db.into()
+                    .create($crate::macros::table::<Self>())
                     .content(self)
                     .await
                     .context(DatabaseQuerySnafu)
             }
 
-            pub async fn update(&self, db: impl Into<&Database>) -> $crate::database::Result<Option<Self>> {
-                db.into().update($crate::macros::id(self))
+            pub async fn update(
+                &self, db: impl Into<&Database>,
+            ) -> $crate::database::Result<Option<Self>> {
+                db.into()
+                    .update($crate::macros::id(self))
                     .merge(self)
                     .await
                     .context(DatabaseQuerySnafu)
             }
 
-            pub async fn delete(&self, db: impl Into<&Database>) -> $crate::database::Result<Option<Self>> {
-                db.into().delete($crate::macros::id(self))
+            pub async fn delete(
+                &self, db: impl Into<&Database>,
+            ) -> $crate::database::Result<Option<Self>> {
+                db.into()
+                    .delete($crate::macros::id(self))
                     .await
                     .context(DatabaseQuerySnafu)
             }

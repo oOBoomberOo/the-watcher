@@ -42,9 +42,7 @@ impl Tracker {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TrackDuration(
-    pub std::time::Duration,
-);
+pub struct TrackDuration(pub std::time::Duration);
 
 impl TrackDuration {
     pub fn from_seconds(seconds: i64) -> Self {
@@ -65,7 +63,6 @@ impl TrackDuration {
         Duration::seconds(self.seconds())
     }
 }
-
 
 impl Serialize for TrackDuration {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

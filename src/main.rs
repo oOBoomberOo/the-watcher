@@ -1,4 +1,14 @@
+use dotenvy::dotenv;
+use the_watcher::{
+    api,
+    config::{Config, ConfigError},
+};
+
 #[tokio::main]
-async fn main() {
-    println!("Hello, world!");
+#[snafu::report]
+async fn main() -> Result<(), ConfigError> {
+    dotenv().ok();
+    let config = Config::new()?;
+    api::create_router(config).await?;
+    Ok(())
 }

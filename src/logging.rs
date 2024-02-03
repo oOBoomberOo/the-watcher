@@ -1,18 +1,22 @@
 use serde_json::Value;
-use tracing::{field::Visit, level_filters::LevelFilter, Subscriber};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing::{field::Visit, level_filters::LevelFilter, Metadata, Subscriber};
+use tracing_subscriber::{filter::filter_fn, layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 use crate::database::Database;
 
 pub fn init(database: Database) {
     let subscriber = tracing_subscriber::fmt::fmt()
-        .with_max_level(LevelFilter::TRACE)
+        .with_max_level(LevelFilter::DEBUG)
         .pretty()
         .finish();
 
-    let database_layer = DatabaseLayer::new(database);
+    let database_layer = DatabaseLayer::new(database).with_filter(filter_fn(crate_local));
 
     subscriber.with(database_layer).init();
+}
+
+fn crate_local(metadata: &Metadata<'_>) -> bool {
+    metadata.target().starts_with("the_watcher")
 }
 
 #[derive(Debug, Clone)]

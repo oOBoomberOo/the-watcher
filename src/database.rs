@@ -6,7 +6,7 @@ use surrealdb::{
     engine::any::Any,
     opt::{
         auth::{self, Credentials, Jwt, Signin},
-        IntoQuery, QueryResult,
+        IntoQuery, IntoResource, QueryResult,
     },
     Surreal,
 };
@@ -348,5 +348,14 @@ impl<'de, T: Id> serde::Deserialize<'de> for Record<T> {
 impl<T> std::hash::Hash for Record<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.inner.hash(state)
+    }
+}
+
+impl<T, R> IntoResource<R> for Record<T>
+where
+    Thing: IntoResource<R>,
+{
+    fn into_resource(self) -> std::result::Result<surrealdb::opt::Resource, surrealdb::Error> {
+        self.inner.into_resource()
     }
 }
