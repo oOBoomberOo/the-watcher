@@ -69,6 +69,8 @@ impl TrackerManager {
             tracing::info!(tracker = ?tracker, "found the tracker `{}` and stopping id", tracker_id);
             tracker.stop().await;
         }
+
+        Tracker::stop(tracker_id, &self.database).await.ok();
     }
 
     pub async fn fetch_all(&self) -> Result<(), TrackerError> {

@@ -13,13 +13,18 @@ define_model!(Tracker);
 define_model!(Stats);
 
 define_relation! {
-    Tracker > trackers(active: bool) > Tracker
+    Tracker > trackers(active: bool) > Vec<Tracker>
         where "SELECT * FROM trackers WHERE active = $active"
 }
 
 define_relation! {
-    Tracker > stats(id: TrackerId) > Stats
+    Tracker > stats(id: TrackerId) > Vec<Stats>
         where "SELECT * FROM stats WHERE tracker_id = $id ORDER BY created_at DESC"
+}
+
+define_relation! {
+    Tracker > stop(id: TrackerId) > Option<Tracker>
+        where "UPDATE trackers SET active = false WHERE id = $id RETURN AFTER"
 }
 
 pub use stats::*;

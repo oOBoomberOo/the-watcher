@@ -94,7 +94,7 @@ macro_rules! define_id {
 macro_rules! define_relation {
     ($model:ty > $relation:ident ($($binding:ident : $binding_type:ty),*) > $export:ty where $query:literal) => {
         impl $model {
-            pub async fn $relation($($binding : $binding_type ,)* db: impl Into<&Database>) -> $crate::database::Result<Vec<$export>> {
+            pub async fn $relation($($binding : $binding_type ,)* db: impl Into<&Database>) -> $crate::database::Result<$export> {
                 db.into().sql($query)
                     $(.bind((stringify!($binding), $binding)))*
                     .fetch()
