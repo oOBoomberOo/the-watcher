@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-
 use surrealdb::engine::any::Any;
 
 use crate::prelude::*;
@@ -15,7 +14,7 @@ pub mod macros;
 
 pub mod prelude {
     pub use super::query::{Only, Sql};
-    pub use super::record::Record;
+    pub use super::record::*;
     pub use super::{Connection, Database, IntoDatabase, SurrealTokenConfig, Table};
     pub use super::{DatabaseConnectionError, DatabaseQueryError};
 
@@ -86,6 +85,12 @@ pub enum DatabaseQueryError {
 
     #[snafu(display("expected exactly one result, but got none at {location}"))]
     NoResults {
+        #[snafu(implicit)]
+        location: Location,
+    },
+
+    #[snafu(display("expected exactly one result, but got more than one at {location}"))]
+    TooManyResults {
         #[snafu(implicit)]
         location: Location,
     },
@@ -193,21 +198,27 @@ impl IntoDatabase for Database {
     }
 }
 
-impl IntoDatabase for &Database {
-    fn into_database(&self) -> &Surreal<Any> {
-        &self.database
-    }
-}
-
-impl IntoDatabase for &Surreal<Any> {
+impl IntoDatabase for Surreal<Any> {
     fn into_database(&self) -> &Surreal<Any> {
         self
     }
 }
 
-impl<D: AsRef<Database>> IntoDatabase for D {
+impl IntoDatabase for axum::extract::State<Database> {
     fn into_database(&self) -> &Surreal<Any> {
-        self.as_ref().into_database()
+        &self.database
+    }
+}
+
+impl IntoDatabase for std::sync::Arc<Database> {
+    fn into_database(&self) -> &Surreal<Any> {
+        &self.database
+    }
+}
+
+impl<D: IntoDatabase> IntoDatabase for &D {
+    fn into_database(&self) -> &Surreal<Any> {
+        (*self).into_database()
     }
 }
 
