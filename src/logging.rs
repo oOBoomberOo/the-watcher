@@ -1,80 +1,118 @@
-use serde_json::Value;
-use tracing::field::Visit;
-use tracing::level_filters::LevelFilter;
-use tracing::{Metadata, Subscriber};
-use tracing_subscriber::filter::filter_fn;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing_subscriber::EnvFilter;
 
-use crate::database::Database;
+use crate::prelude::*;
 
-pub fn init(database: Database) {
-    let subscriber = tracing_subscriber::fmt::fmt()
-        .with_max_level(LevelFilter::DEBUG)
+pub fn init_logger(database: Database) -> Logger {
+    tracing_subscriber::fmt::fmt()
+        .with_env_filter(EnvFilter::from_env("LOG_LEVEL"))
         .pretty()
-        .finish();
+        .init();
 
-    let database_layer = DatabaseLayer::new(database).with_filter(filter_fn(crate_local));
-
-    subscriber.with(database_layer).init();
+    Logger::spawn(database)
 }
 
-fn crate_local(metadata: &Metadata<'_>) -> bool {
-    metadata.target().starts_with("the_watcher")
+#[derive(Debug, Clone, Deserialize, Serialize, new)]
+pub struct Log {
+    #[new(default)]
+    id: Record<Log>,
+    #[new(default)]
+    created_at: Timestamp,
+    level: Level,
+    user: Record<User>,
+    #[serde(flatten)]
+    event: Event,
+}
+
+define_table!("logs" : Log = id);
+define_crud!(Log);
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum Level {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "system")]
+    System,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, new)]
+#[serde(tag = "action", content = "data")]
+pub enum Event {
+    TrackerCreated {
+        tracker: Tracker,
+    },
+    TrackerUpdated {
+        tracker: Tracker,
+    },
+    TrackerStopped {
+        tracker: Tracker,
+    },
+
+    StatsRecorded {
+        tracker_id: Record<Tracker>,
+        video_id: Record<Video>,
+        stats_id: Record<Stats>,
+    },
+
+    SignedUp {
+        username: String,
+    },
+    GeneratedToken {
+        token: Record<RegistrationToken>,
+    },
+}
+
+impl Event {
+    pub fn record(self, user: &Record<User>) -> Log {
+        Log::new(self.level(), user.clone(), self)
+    }
+
+    pub fn level(&self) -> Level {
+        match self {
+            Event::TrackerCreated { .. }
+            | Event::TrackerUpdated { .. }
+            | Event::TrackerStopped { .. }
+            | Event::StatsRecorded { .. } => Level::User,
+            Event::SignedUp { .. } | Event::GeneratedToken { .. } => Level::System,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct DatabaseLayer {
-    tx: tokio::sync::mpsc::Sender<serde_json::Value>,
+pub struct Logger {
+    tx: tokio::sync::mpsc::Sender<Log>,
 }
 
-impl DatabaseLayer {
-    pub fn new(database: Database) -> DatabaseLayer {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+impl Logger {
+    pub fn spawn(db: Database) -> Self {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Log>(100);
 
         tokio::spawn(async move {
-            while let Some(event) = rx.recv().await {
-                if let Err(err) = database.create::<Vec<()>>("logs").content(event).await {
-                    eprintln!("Failed to write to database: {}", err);
-                }
+            while let Some(log) = rx.recv().await {
+                log.create(&db).await.ok();
             }
         });
 
-        DatabaseLayer { tx }
+        Self { tx }
+    }
+
+    fn send(&self, user: &Record<User>, event: Event) {
+        self.tx.try_send(event.record(user)).ok();
     }
 }
 
-impl<S: Subscriber> Layer<S> for DatabaseLayer {
-    fn on_event(
-        &self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        let result = JsonVisitor::record(event);
-        let _ = self.tx.try_send(result);
-    }
+macro_rules! log_helper {
+    ($method:ident => $cons:ident ( $($name:ident : $arg:ty),* ) ) => {
+        pub fn $method(&self, user: &Record<User>, $($name: $arg),*) {
+            self.send(user, Event::$cons($($name),*));
+        }
+    };
 }
 
-#[derive(Debug, Default)]
-struct JsonVisitor {
-    buffer: serde_json::Map<String, Value>,
-}
-
-impl JsonVisitor {
-    fn record(event: &tracing::Event<'_>) -> serde_json::Value {
-        let mut visitor = Self::default();
-        event.record(&mut visitor);
-        visitor.finish()
-    }
-
-    fn finish(self) -> serde_json::Value {
-        self.buffer.into()
-    }
-}
-
-impl Visit for JsonVisitor {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        let field = field.name().to_owned();
-        let value = format!("{:?}", value);
-        self.buffer.insert(field, value.into());
-    }
+impl Logger {
+    log_helper!(tracker_created => new_tracker_created(tracker: Tracker));
+    log_helper!(tracker_updated => new_tracker_updated(tracker: Tracker));
+    log_helper!(tracker_stopped => new_tracker_stopped(tracker: Tracker));
+    log_helper!(stats_recorded => new_stats_recorded(tracker_id: Record<Tracker>, video_id: Record<Video>, stats_id: Record<Stats>));
+    log_helper!(signed_up => new_signed_up(username: String));
+    log_helper!(generated_token => new_generated_token(token: Record<RegistrationToken>));
 }

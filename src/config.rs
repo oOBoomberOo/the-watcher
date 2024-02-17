@@ -1,98 +1,83 @@
 use std::net::SocketAddr;
 
-use derive_new::new;
-use invidious::MethodAsync;
-use serde::Deserialize;
-use snafu::{Location, ResultExt, Snafu};
-use tokio::net::TcpListener;
-use url::Url;
+use jsonwebtoken::Validation;
+use secrecy::SecretString;
 
-use crate::database::{Database, DatabaseError};
-use crate::service::youtube::YouTube;
-use crate::Located;
+use crate::auth::Authenticator;
+use crate::database::ServerConnection;
+use crate::{prelude::*, ConfigSnafu, InitError};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    pub surreal_database_url: Url,
-    pub holodex_api_key: String,
-    #[serde(default = "default::invidious_instance")]
-    pub invidious_instance: String,
+    #[serde(rename = "host_address")]
     pub host: SocketAddr,
+    #[serde(flatten)]
+    pub surreal: SurrealConfig,
+    #[serde(flatten)]
+    pub holodex: HolodexConfig,
+    #[serde(flatten)]
+    pub invidious: InvidiousConfig,
 }
 
 impl Config {
-    pub fn new() -> Result<Self, ConfigError> {
-        envy::from_env::<Self>().context(EnvSnafu)
+    pub fn from_env() -> Result<Config, InitError> {
+        envy::from_env::<Config>().context(ConfigSnafu)
     }
 
-    pub async fn database(&self) -> Result<Database, ConfigError> {
-        let database_url = self.surreal_database_url.clone();
-        Database::connect(database_url).await.context(DatabaseSnafu)
+    pub fn youtube(&self) -> Result<YouTube, YouTubeConnectionError> {
+        let holodex = HolodexService::from_config(&self.holodex)?;
+        let invidious = InvidiousService::from_config(&self.invidious);
+
+        Ok(YouTube { holodex, invidious })
     }
 
-    pub fn holodex(&self) -> Result<holodex::Client, ConfigError> {
-        holodex::Client::new(&self.holodex_api_key).context(HolodexSnafu)
+    pub async fn database(&self) -> Result<Database, DatabaseConnectionError> {
+        self.surreal.connect().await
     }
 
-    pub fn invidious(&self) -> invidious::ClientAsync {
-        invidious::ClientAsync::new(self.invidious_instance.clone(), MethodAsync::Reqwest)
-    }
+    pub fn authenticator(&self, database: &Database) -> Authenticator {
+        Authenticator {
+            secret: SecretString::new(self.surreal.token.token.clone()),
+            algorithm: self.surreal.token.algorithm,
+            validation: Validation::new(self.surreal.token.algorithm),
 
-    pub fn youtube(&self) -> Result<YouTube, ConfigError> {
-        let invidious = self.invidious();
-        let holodex = self.holodex()?;
-        Ok(YouTube::new(invidious, holodex))
-    }
+            database: self.surreal.database.clone(),
+            namespace: self.surreal.namespace.clone(),
+            scope_name: self.surreal.token.scope.clone(),
+            token_name: self.surreal.token.name.clone(),
 
-    pub async fn listener(&self) -> Result<TcpListener, ConfigError> {
-        TcpListener::bind(self.host).await.context(ListenerSnafu)
-    }
-}
-
-#[derive(Debug, Snafu, new)]
-pub enum ConfigError {
-    #[snafu(display("{location}: faild to connect to the database because {}", source))]
-    Database {
-        source: DatabaseError,
-        #[snafu(implicit)]
-        location: Location,
-    },
-
-    #[snafu(display("{location}: faild to load config from env: {}", source))]
-    Env {
-        source: envy::Error,
-        #[snafu(implicit)]
-        location: Location,
-    },
-
-    #[snafu(display("{location} faild to create holodex client: {}", source))]
-    Holodex {
-        source: holodex::errors::Error,
-        #[snafu(implicit)]
-        location: Location,
-    },
-
-    #[snafu(display("{location} faild to create listener: {}", source))]
-    Listener {
-        source: std::io::Error,
-        #[snafu(implicit)]
-        location: Location,
-    },
-}
-
-impl Located for ConfigError {
-    fn location(&self) -> Location {
-        match self {
-            ConfigError::Database { location, .. }
-            | ConfigError::Env { location, .. }
-            | ConfigError::Holodex { location, .. }
-            | ConfigError::Listener { location, .. } => *location,
+            db: std::sync::Arc::new(database.clone()),
         }
     }
 }
 
-mod default {
-    pub fn invidious_instance() -> String {
-        invidious::INSTANCE.to_string()
+#[derive(Debug, Deserialize, Clone)]
+pub struct SurrealConfig {
+    #[serde(rename = "surreal_endpoint")]
+    pub endpoint: Url,
+    #[serde(rename = "surreal_namespace")]
+    pub namespace: String,
+    #[serde(rename = "surreal_database")]
+    pub database: String,
+    #[serde(rename = "surreal_username")]
+    pub username: String,
+    #[serde(rename = "surreal_password")]
+    pub password: String,
+
+    #[serde(flatten)]
+    pub token: SurrealTokenConfig,
+}
+
+impl Connection for SurrealConfig {
+    async fn connect(&self) -> Result<Database, DatabaseConnectionError> {
+        let connection = ServerConnection {
+            address: &self.endpoint,
+            namespace: &self.namespace,
+            database: &self.database,
+            username: &self.username,
+            password: &self.password,
+        };
+
+        connection.connect().await
     }
 }
