@@ -45,7 +45,9 @@ impl Bindings<'_> {
     ///
     /// This means that you can execute multiple queries in a single call and get all the results back.
     pub async fn execute(self) -> Result<surrealdb::Response, DatabaseQueryError> {
-        self.query.await.context(MalformedQuerySnafu)
+        let response = self.query.await.context(MalformedQuerySnafu)?;
+        tracing::debug!(?response, "executed query");
+        Ok(response)
     }
 
     /// Execute the queries and deserialize all the results into a list of list of values.
