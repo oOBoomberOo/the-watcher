@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use surrealdb::opt::QueryResult;
 
 use super::*;
@@ -94,5 +96,25 @@ impl<T: DeserializeOwned> QueryResult<Only<T>> for usize {
             surrealdb::error::Api::ParseError("expected exactly one result, but got none".into())
                 .into()
         })
+    }
+}
+
+impl<T> TryFrom<Vec<T>> for Only<T> {
+    type Error = DatabaseQueryError;
+
+    fn try_from(mut value: Vec<T>) -> Result<Self, Self::Error> {
+        match value.len() {
+            0 => Err(NoResultsSnafu.build()),
+            1 => Ok(Only(value.remove(0))),
+            _ => Err(TooManyResultsSnafu.build()),
+        }
+    }
+}
+
+impl<T> Deref for Only<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
