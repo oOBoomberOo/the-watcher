@@ -1,3 +1,5 @@
+use surrealdb::sql::Id;
+
 use super::Table;
 use crate::prelude::*;
 
@@ -29,7 +31,10 @@ impl<T: Table> Record<T> {
     }
 
     pub fn content(&self) -> String {
-        self.inner.id.to_string()
+        match &self.inner.id {
+            Id::String(v) => v.clone(),
+            other => other.to_string(),
+        }
     }
 }
 
@@ -83,15 +88,6 @@ impl<T> serde::Serialize for Record<T> {
 impl<'de, T: Table> serde::Deserialize<'de> for Record<T> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let thing = Thing::deserialize(deserializer)?;
-
-        let expected = T::table();
-        let actual = &thing.tb;
-
-        if expected == actual {
-            return Err(serde::de::Error::custom(format!(
-                "table name mismatch, expected '{expected}' but got '{actual}'"
-            )));
-        }
 
         Ok(Record {
             inner: thing,
