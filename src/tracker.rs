@@ -28,16 +28,24 @@ pub struct Tracker {
     pub created_at: Timestamp,
     #[new(value = "true")]
     pub active: bool,
+    #[new(default)]
+    pub stopped_at: Option<Timestamp>,
 
     pub owner: Record<User>,
-    pub video: Record<Video>,
+    pub video_id: String,
+    pub title: String,
 
-    pub start_at: Timestamp,
+    pub scheduled_on: Timestamp,
     pub interval: Interval,
     pub milestone: Option<i64>,
 }
 
 define_table!("trackers" : Tracker = id);
+
+define_relation! {
+    Tracker > get(id: Record<Tracker>) > Option<Tracker>
+        where "SELECT * FROM trackers WHERE id = $id LIMIT 1"
+}
 
 define_relation! {
     Tracker > disable(id: Record<Tracker>) > Option<Tracker>
@@ -52,16 +60,12 @@ define_relation! {
 /// An interval of time that the tracker will look for new stats, relative to the `start_at` timestamp.
 ///
 /// This type can be converted to [chrono::Duration] and [std::time::Duration] by [Interval::to_chrono] and [Interval::to_std].
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, new)]
-pub struct Interval(pub iso8601_duration::Duration);
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, new, From)]
+pub struct Interval(pub surrealdb::sql::Duration);
 
 impl Interval {
-    pub fn to_chrono(self) -> chrono::Duration {
-        self.0.to_chrono().unwrap_or_else(chrono::Duration::zero)
-    }
-
     pub fn to_std(self) -> std::time::Duration {
-        self.0.to_std().unwrap_or(std::time::Duration::ZERO)
+        self.0.0
     }
 
     pub fn to_interval(self, start_at: Timestamp) -> tokio::time::Interval {
@@ -74,6 +78,12 @@ impl Interval {
     }
 }
 
+impl From<std::time::Duration> for Interval {
+    fn from(value: std::time::Duration) -> Self {
+        Self(value.into())
+    }
+}
+
 type TrackerId = Record<Tracker>;
 
 type QuitSignal = tokio::sync::oneshot::Receiver<Quit>;
@@ -82,7 +92,7 @@ type QuitSignal = tokio::sync::oneshot::Receiver<Quit>;
 struct Quit;
 
 #[derive(Debug)]
-struct TrackingTask {
+pub struct TrackingTask {
     tx: tokio::sync::oneshot::Sender<Quit>,
     handle: tokio::task::JoinHandle<()>,
 }
@@ -111,10 +121,10 @@ impl TrackingTask {
 #[derive(Debug, new)]
 pub struct Manager {
     #[new(default)]
-    trackers: DashMap<TrackerId, TrackingTask>,
-    youtube: YouTube,
-    database: Database,
-    logger: Logger,
+    pub trackers: DashMap<TrackerId, TrackingTask>,
+    pub youtube: YouTube,
+    pub database: Database,
+    pub logger: Logger,
 }
 
 impl Manager {
@@ -147,7 +157,7 @@ impl Manager {
         youtube: &YouTube,
         database: &Database,
     ) {
-        let video_stats = match youtube.invidious.get_video_stats(&tracker.video).await {
+        let video_stats = match youtube.invidious.get_video_stats(&tracker.video_id).await {
             Ok(stats) => stats,
             Err(err) => {
                 tracing::warn!("Failed to fetch video stats: {}", err);
@@ -163,7 +173,7 @@ impl Manager {
                 logger.stats_recorded(
                     &tracker.owner,
                     tracker.id.clone(),
-                    tracker.video.clone(),
+                    tracker.video_id.clone(),
                     stats.id,
                 );
             }
@@ -175,7 +185,7 @@ impl Manager {
     /// This will spawn a new infinite task and detach it from the scope.
     pub fn schedule(&self, tracker: Tracker) {
         let tracker_id = tracker.id.clone();
-        let mut interval = tracker.interval.to_interval(tracker.start_at);
+        let mut interval = tracker.interval.to_interval(tracker.scheduled_on);
 
         let database = self.database.clone();
         let youtube = self.youtube.clone();
@@ -215,9 +225,9 @@ impl Manager {
 /// A watcher service that watches for changes on the trackers table and updates the [Manager] accordingly.
 #[derive(Debug, Clone, new)]
 pub struct Watcher {
-    manager: Arc<Manager>,
-    database: Database,
-    logger: Logger,
+    pub manager: Arc<Manager>,
+    pub database: Database,
+    pub logger: Logger,
 }
 
 impl Watcher {

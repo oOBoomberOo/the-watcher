@@ -49,7 +49,7 @@ pub enum Event {
 
     StatsRecorded {
         tracker_id: Record<Tracker>,
-        video_id: Record<Video>,
+        video_id: String,
         stats_id: Record<Stats>,
     },
 
@@ -112,7 +112,7 @@ impl Logger {
     log_helper!(tracker_created => new_tracker_created(tracker: Tracker));
     log_helper!(tracker_updated => new_tracker_updated(tracker: Tracker));
     log_helper!(tracker_stopped => new_tracker_stopped(tracker: Tracker));
-    log_helper!(stats_recorded => new_stats_recorded(tracker_id: Record<Tracker>, video_id: Record<Video>, stats_id: Record<Stats>));
+    log_helper!(stats_recorded => new_stats_recorded(tracker_id: Record<Tracker>, video_id: String, stats_id: Record<Stats>));
     log_helper!(signed_up => new_signed_up(username: String));
     log_helper!(generated_token => new_generated_token(token: Record<RegistrationToken>));
 }
