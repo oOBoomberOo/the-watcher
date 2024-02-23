@@ -1,60 +1,5 @@
 #[macro_export]
-macro_rules! define_crud {
-    ($model:ty) => {
-        use $crate::database::{DatabaseQueryError, IntoDatabase};
-
-        impl $model {
-            pub async fn list(db: impl IntoDatabase) -> Result<Vec<Self>, DatabaseQueryError> {
-                db.into_database()
-                    .select(Self::table())
-                    .await
-                    .map_err(Into::into)
-            }
-
-            pub async fn find(
-                id: impl surrealdb::opt::IntoResource<Option<Self>>,
-                db: impl IntoDatabase,
-            ) -> Result<Option<Self>, DatabaseQueryError> {
-                db.into_database().select(id).await.map_err(Into::into)
-            }
-
-            pub async fn create(
-                &self,
-                db: impl IntoDatabase,
-            ) -> Result<Vec<Self>, DatabaseQueryError> {
-                db.into_database()
-                    .create(Self::table())
-                    .content(self)
-                    .await
-                    .map_err(Into::into)
-            }
-
-            pub async fn update(
-                &self,
-                db: impl IntoDatabase,
-            ) -> Result<Option<Self>, DatabaseQueryError> {
-                db.into_database()
-                    .update(self.id())
-                    .merge(self)
-                    .await
-                    .map_err(Into::into)
-            }
-
-            pub async fn delete(
-                &self,
-                db: impl IntoDatabase,
-            ) -> Result<Option<Self>, DatabaseQueryError> {
-                db.into_database()
-                    .delete(self.id())
-                    .await
-                    .map_err(Into::into)
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! define_table {
+macro_rules! table {
     ($table:literal: $model:ty = $id:ident) => {
         impl $crate::database::Table for $model {
             fn id(&self) -> &$crate::prelude::Thing {
@@ -87,17 +32,16 @@ macro_rules! define_table {
 /// let stats = Tracker::stats(tracker_id, &db).await?;
 /// ```
 #[macro_export]
-macro_rules! define_relation {
-    ($model:ty > $relation:ident ($($binding:ident : $binding_type:ty),*) > $export:ty where $query:literal) => {
-        impl $model {
-            pub async fn $relation($($binding : $binding_type ,)* db: impl $crate::database::IntoDatabase) -> Result<$export, $crate::database::DatabaseQueryError> {
-                use $crate::database::query::Sql;
-
-                db.sql($query)
-                    $(.bind((stringify!($binding), $binding)))*
-                    .fetch_first()
-                    .await
-            }
+macro_rules! query {
+    ($relation:ident ($($binding:ident : $binding_type:ty),*) -> $export:ty where $query:literal) => {
+        #[tracing::instrument]
+        pub async fn $relation($($binding : $binding_type ,)*) -> Result<$export, $crate::database::DatabaseError> {
+            use $crate::database::Query;
+            $crate::database::database()
+                .query($query)
+                $(.bind((stringify!($binding), $binding)))*
+                .fetch()
+                .await
         }
     };
 }

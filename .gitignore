@@ -3,4 +3,6 @@
 /.cargo
 /.export
 /database
+/logs
 .env
+history.txt

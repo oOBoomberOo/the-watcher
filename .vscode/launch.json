@@ -7,16 +7,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'the-watcher'",
+            "name": "Debug unit tests in library 'kitsune'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=the-watcher"
+                    "--package=kitsune"
                 ],
                 "filter": {
-                    "name": "the-watcher",
+                    "name": "kitsune",
                     "kind": "lib"
                 }
             },
@@ -26,15 +26,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'the-watcher'",
+            "name": "Debug executable 'kitsune'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=the-watcher",
-                    "--package=the-watcher"
+                    "--bin=kitsune",
+                    "--package=kitsune"
                 ],
                 "filter": {
-                    "name": "the-watcher",
+                    "name": "kitsune",
                     "kind": "bin"
                 }
             },
@@ -44,16 +44,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'the-watcher'",
+            "name": "Debug unit tests in executable 'kitsune'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=the-watcher",
-                    "--package=the-watcher"
+                    "--bin=kitsune",
+                    "--package=kitsune"
                 ],
                 "filter": {
-                    "name": "the-watcher",
+                    "name": "kitsune",
                     "kind": "bin"
                 }
             },
@@ -69,7 +69,7 @@
                     "test",
                     "--no-run",
                     "--test=get_youtube_statistics",
-                    "--package=the-watcher"
+                    "--package=kitsune"
                 ],
                 "filter": {
                     "name": "get_youtube_statistics",

@@ -1,192 +1,197 @@
-use crate::prelude::*;
+use invidious::ClientAsyncTrait;
+use invidious::MethodAsync::Reqwest;
+use serde::{Deserialize, Serialize};
+use snafu::{OptionExt as _, ResultExt, Snafu};
+use tracing::instrument;
 
-pub mod prelude {
-    pub use super::holodex_service::*;
-    pub use super::invidious_service::*;
-    pub use super::{Stats, YouTube, YouTubeConnectionError, YouTubeError};
+use crate::error::{ApplicationError, HolodexSnafu};
+use crate::time::Timestamp;
+
+pub async fn connect(config: &YouTubeConfig) -> Result<YouTube, ApplicationError> {
+    let holodex = holodex::Client::new(&config.holodex_api_key).context(HolodexSnafu)?;
+    let invidious = invidious::ClientAsync::new(config.invidious_instance.clone(), Reqwest);
+    let youtube = YouTube { holodex, invidious };
+
+    Ok(youtube)
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, new)]
-pub struct Stats {
-    #[new(default)]
-    pub id: Record<Self>,
-    #[new(default)]
-    pub created_at: Timestamp,
-    pub tracker: Record<Tracker>,
-    pub video_id: String,
-    pub views: u64,
-    pub likes: u64,
+pub fn parse_video_id(text: &str) -> Result<String, ParseVideoErr> {
+    // if text is not a url, return the text
+    let Ok(url) = url::Url::parse(text) else {
+        return Ok(text.to_string());
+    };
+
+    // if url is youtu.be, return the first path segment
+    if url.host_str() == Some("youtu.be") {
+        let path = url
+            .path_segments()
+            .context(ExpectYouTubeUrlSnafu { text })?
+            .next()
+            .context(MissingIdFragmentSnafu { text })?;
+        return Ok(path.to_string());
+    }
+
+    // if url is youtube.com, return the v query parameter
+    if url.host_str() == Some("www.youtube.com") {
+        let mut query = url.query_pairs();
+        let id = query
+            .find_map(|(key, value)| if key == "v" { Some(value) } else { None })
+            .context(MissingIdFragmentSnafu { text })?;
+        return Ok(id.to_string());
+    }
+
+    // otherwise, return an error
+    Err(ParseVideoErr::ExpectYouTubeUrl {
+        text: text.to_string(),
+    })
 }
 
-define_table! { "stats" : Stats = id }
+#[derive(Debug, Snafu, PartialEq)]
+pub enum ParseVideoErr {
+    /// text is a valid url, but it's missing the id fragment
+    MissingIdFragment { text: String },
 
-impl Stats {
-    pub async fn create(
-        tracker: &Tracker,
-        stats: VideoStats,
-        db: impl IntoDatabase,
-    ) -> Result<Only<Stats>, DatabaseQueryError> {
-        db.sql("CREATE stats CONTENT { tracker: $tracker, video_id: $video_id, $views: $views, likes: $likes } RETURN *")
-            .bind(("tracker", tracker.id()))
-            .bind(("video_id", &tracker.video_id))
-            .bind(("views", stats.views))
-            .bind(("likes", stats.likes))
-            .fetch_one()
-            .await
+    /// text is a url, but it doesn't point to youtube
+    ExpectYouTubeUrl { text: String },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YouTubeConfig {
+    holodex_api_key: String,
+    invidious_instance: String,
+}
+
+impl Default for YouTubeConfig {
+    fn default() -> Self {
+        Self {
+            holodex_api_key: "".to_string(),
+            invidious_instance: invidious::INSTANCE.to_string(),
+        }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct YouTube {
-    pub holodex: HolodexService,
-    pub invidious: InvidiousService,
+    holodex: holodex::Client,
+    invidious: invidious::ClientAsync,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
-pub struct VideoInfo {
+impl YouTube {
+    #[instrument(skip(self))]
+    pub async fn upload_info(&self, video_id: &str) -> Result<UploadInfo, YouTubeError> {
+        let video_id = video_id.parse().context(InvalidVideoIdSnafu { video_id })?;
+        let holodex = self.holodex.clone();
+
+        tokio::task::spawn_blocking(move || -> Result<UploadInfo, YouTubeError> {
+            let response = holodex.video(&video_id).ok().context(NotFoundSnafu {
+                video_id: video_id.to_string(),
+            })?;
+
+            Ok(UploadInfo {
+                title: response.video.title,
+                published_at: response.video.available_at,
+            })
+        })
+        .await
+        .unwrap()
+    }
+
+    #[instrument(skip(self))]
+    pub async fn stats_info(&self, video_id: &str) -> Result<Stats, YouTubeError> {
+        let response = self
+            .invidious
+            .video(video_id, None)
+            .await
+            .ok()
+            .context(NotFoundSnafu { video_id })?;
+
+        Ok(Stats {
+            likes: response.likes.into(),
+            views: response.views,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UploadInfo {
     pub title: String,
     pub published_at: Timestamp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub struct VideoStats {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Stats {
     pub views: u64,
     pub likes: u64,
 }
 
 #[derive(Debug, Snafu)]
 pub enum YouTubeError {
-    ParseVideoId {
+    /// The video id is invalid
+    InvalidVideoId {
+        video_id: String,
         source: holodex::errors::Error,
-        #[snafu(implicit)]
-        location: Location,
     },
 
-    InvalidInfoResponse {
-        source: holodex::errors::Error,
-        #[snafu(implicit)]
-        location: Location,
-    },
-
-    InvalidStatsResponse {
-        source: invidious::InvidiousError,
-        #[snafu(implicit)]
-        location: Location,
-    },
+    /// The video doesn't exist or is private
+    NotFound { video_id: String },
 }
 
-#[derive(Debug, Snafu)]
-pub enum YouTubeConnectionError {
-    Holodex {
-        api_key: String,
-        source: holodex::errors::Error,
-        #[snafu(implicit)]
-        location: Location,
-    },
-}
-
-/// YouTube video's info lookup service.
-mod holodex_service {
-    use holodex::model::id::VideoId;
-    use holodex::Client;
-
+#[cfg(test)]
+mod tests {
     use super::*;
 
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-    pub struct HolodexConfig {
-        pub holodex_api_key: String,
+    #[test]
+    fn parse_youtube_url() {
+        let result = parse_video_id("https://www.youtube.com/watch?v=12345");
+        assert_eq!(result.as_deref(), Ok("12345"));
     }
 
-    #[derive(Debug, Clone, new)]
-    pub struct HolodexService {
-        client: Client,
+    #[test]
+    fn parse_youtube_url_with_other_queries() {
+        let result = parse_video_id(
+            "https://www.youtube.com/watch?list=some-playlist&v=12345&feature=emb_logo",
+        );
+        assert_eq!(result.as_deref(), Ok("12345"));
     }
 
-    impl HolodexService {
-        pub fn from_config(config: &HolodexConfig) -> Result<Self, YouTubeConnectionError> {
-            let api_key = &config.holodex_api_key;
-            Client::new(api_key)
-                .context(HolodexSnafu { api_key })
-                .map(Self::new)
-        }
-
-        pub async fn get_video_info(&self, video_id: &str) -> Result<VideoInfo, YouTubeError> {
-            let video_id: VideoId = video_id.parse().context(ParseVideoIdSnafu)?;
-            let client = self.client.clone();
-
-            let handle = tokio::task::spawn_blocking(move || client.video(&video_id));
-            let result = handle.await.unwrap().context(InvalidInfoResponseSnafu)?;
-
-            let info = VideoInfo {
-                title: result.video.title,
-                published_at: result.video.available_at.into(),
-            };
-
-            Ok(info)
-        }
-    }
-}
-
-/// YouTube video's stats lookup service.
-mod invidious_service {
-    use invidious::{ClientAsync, ClientAsyncTrait as _, MethodAsync};
-    use std::fmt::Debug;
-
-    use super::*;
-
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-    #[serde(default)]
-    pub struct InvidiousConfig {
-        pub invidious_instance: String,
+    #[test]
+    fn parse_youtube_short_url() {
+        let result = parse_video_id("https://youtu.be/12345");
+        assert_eq!(result.as_deref(), Ok("12345"));
     }
 
-    impl Default for InvidiousConfig {
-        fn default() -> Self {
-            Self {
-                invidious_instance: invidious::INSTANCE.to_string(),
-            }
-        }
+    #[test]
+    fn parse_youtube_short_url_with_other_queries() {
+        let result = parse_video_id("https://youtu.be/12345?t=1");
+        assert_eq!(result.as_deref(), Ok("12345"));
     }
 
-    #[derive(Clone, new)]
-    pub struct InvidiousService {
-        client: ClientAsync,
+    #[test]
+    fn parse_non_url_id() {
+        let result = parse_video_id("12345");
+        assert_eq!(result.as_deref(), Ok("12345"));
     }
 
-    impl InvidiousService {
-        pub fn from_config(config: &InvidiousConfig) -> Self {
-            Self {
-                client: ClientAsync::new(config.invidious_instance.clone(), MethodAsync::Reqwest),
-            }
-        }
-
-        pub async fn get_video_stats(&self, video_id: &str) -> Result<VideoStats, YouTubeError> {
-            let stats = self
-                .client
-                .video(video_id, None)
-                .await
-                .context(InvalidStatsResponseSnafu)?;
-
-            let stats = VideoStats {
-                views: stats.views,
-                likes: stats.likes.into(),
-            };
-
-            Ok(stats)
-        }
+    #[test]
+    fn throw_error_on_invalid_url() {
+        let result = parse_video_id("https://www.youtube.com/watch");
+        assert_eq!(
+            result,
+            Err(ParseVideoErr::MissingIdFragment {
+                text: "https://www.youtube.com/watch".to_string()
+            })
+        );
     }
 
-    impl Debug for InvidiousService {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("Invidious")
-                .field("client", &"ClientAsync")
-                .finish()
-        }
-    }
-
-    impl Default for InvidiousService {
-        fn default() -> Self {
-            Self::from_config(&InvidiousConfig::default())
-        }
+    #[test]
+    fn throw_error_on_non_youtube_url() {
+        let result = parse_video_id("https://www.google.com");
+        assert_eq!(
+            result,
+            Err(ParseVideoErr::ExpectYouTubeUrl {
+                text: "https://www.google.com".to_string()
+            })
+        );
     }
 }

@@ -1,69 +1,87 @@
-use std::ops::Neg;
+use std::time::Duration;
 
-use chrono::Utc;
-use tokio::time::Instant;
+use chrono::{Local, NaiveDateTime, Utc};
+use tracing::instrument;
 
-use crate::prelude::*;
+pub type Timestamp = chrono::DateTime<Utc>;
 
-/// A wrapper around [chrono::DateTime] that implemented a default value to the current time.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize, From,
-)]
-pub struct Timestamp(pub chrono::DateTime<Utc>);
+pub type Interval = surrealdb::sql::Duration;
 
-impl Timestamp {
-    pub fn now() -> Self {
-        Utc::now().into()
-    }
+#[instrument]
+pub fn timer(start: Timestamp, interval: Interval) -> tokio::time::Interval {
+    let start = tokio::time::Instant::now() + duration_to_next_instant(start, interval, Utc::now());
+    let period = *interval;
 
-    /// Convert [Timestamp] into [Instant].
-    ///
-    /// ## Note
-    /// There is no direct way to convert arbitrary date time into [Instant] because of its monotonic guarantee.
-    /// Instead, we calculate the elapsed time from the current time and then add or subtract it from the current instant.
-    pub fn to_instant(self) -> Instant {
-        let elapsed = Utc::now().signed_duration_since(self.0);
-        let now = Instant::now();
-
-        // [std::time::Duration] cannot be negative, so we need to handle it manually.
-        let past_instant = elapsed.to_std().map(|duration| now - duration);
-
-        let future_instant = now + elapsed.neg().to_std().unwrap_or_default();
-
-        past_instant.unwrap_or(future_instant)
-    }
+    let mut timer = tokio::time::interval_at(start, period);
+    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    timer
 }
 
-impl Default for Timestamp {
-    fn default() -> Self {
-        Self::now()
+/// compute the time until the next "interval instant" will occur.
+/// this is used to construct [tokio::time::Interval] on an interval that has already started.
+fn duration_to_next_instant(start: Timestamp, interval: Interval, now: Timestamp) -> Duration {
+    if start > now {
+        return (start - now)
+            .to_std()
+            .expect("duration is positive since start is in the future");
     }
+
+    let period = interval.secs() as i64;
+    let elapsed = (now - start).num_seconds();
+    let seconds_left = elapsed % period;
+
+    assert!(seconds_left > 0, "seconds left must be positive");
+
+    Duration::from_secs(seconds_left as u64)
 }
 
-impl std::ops::Deref for Timestamp {
-    type Target = chrono::DateTime<Utc>;
+pub fn parse_timestamp(input: &str) -> Result<Timestamp, chrono::ParseError> {
+    let local = NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M")?;
+    let timestamp = local
+        .and_local_timezone(Local)
+        .earliest()
+        .expect("timestamp is not valid");
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+    let normalized = timestamp.with_timezone(&Utc);
+
+    Ok(normalized)
 }
 
-impl std::ops::DerefMut for Timestamp {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
+pub fn parse_interval(input: u64) -> Interval {
+    Duration::from_secs(input).into()
 }
 
-impl std::convert::AsRef<chrono::DateTime<Utc>> for Timestamp {
-    fn as_ref(&self) -> &chrono::DateTime<Utc> {
-        &self.0
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use chrono::Duration;
+
+    fn interval(duration: chrono::Duration) -> Interval {
+        duration.to_std().unwrap().into()
     }
-}
 
-impl std::ops::Sub<Timestamp> for Timestamp {
-    type Output = chrono::Duration;
+    #[test]
+    fn interval_in_the_future() {
+        let now = Utc::now();
+        let scheduled = now + Duration::days(1);
+        let interval = interval(Duration::hours(1));
 
-    fn sub(self, rhs: Self) -> Self::Output {
-        self.0 - rhs.0
+        let result = duration_to_next_instant(scheduled, interval, now);
+        assert_eq!(
+            Duration::from_std(result).unwrap(),
+            Duration::days(1),
+            "interval in the future should return the time that it was scheduled"
+        );
+    }
+
+    #[test]
+    fn already_running_interval() {
+        let now = Utc::now();
+        let scheduled = now - Duration::days(1) + Duration::minutes(15);
+        let interval = interval(Duration::hours(1));
+
+        let result = duration_to_next_instant(scheduled, interval, now);
+        assert_eq!(Duration::from_std(result).unwrap(), Duration::minutes(45), "interval that has already started should return the time until the next interval instant");
     }
 }

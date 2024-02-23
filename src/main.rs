@@ -1,29 +1,35 @@
-use std::sync::Arc;
-
+#![feature(try_blocks)]
 use dotenvy::dotenv;
-use the_watcher::prelude::*;
+
+mod config;
+mod database;
+mod error;
+mod logger;
+mod model;
+mod time;
+mod tracker;
+mod youtube;
+
+use error::ApplicationError;
+use tracker::Pipe;
 
 #[tokio::main]
-#[snafu::report]
-async fn main() -> Result<(), InitError> {
+async fn main() -> Result<(), ApplicationError> {
     dotenv().ok();
-    let config = Config::from_env()?;
 
-    let youtube = config.youtube()?;
-    let database = config.database().await?;
-    let logger = init_logger(database.clone());
+    let config = config::load()?;
 
-    let auth = config.authenticator(&database);
+    let _guard = logger::init(&config)?;
 
-    let manager = Arc::new(Manager::new(youtube, database.clone(), logger.clone()));
-    let watcher = Watcher::new(manager.clone(), database, logger.clone());
+    database::connect(&config.database).await?;
+    let youtube = youtube::connect(&config.youtube).await?;
 
-    watcher.watch().await?;
+    let record_stats = tracker::recorder(youtube.clone()).await;
+    let (handle, tracker_ticks) = tracker::watcher().await?;
 
-    let app = App::new(config.host, logger, auth);
+    tracker_ticks.pipe(record_stats);
 
-    serve(app).await?;
-    manager.shutdown().await;
+    handle.await.unwrap();
 
     Ok(())
 }
