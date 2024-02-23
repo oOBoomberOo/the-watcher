@@ -1,4 +1,3 @@
-#![feature(try_blocks)]
 use dotenvy::dotenv;
 
 mod config;

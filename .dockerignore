@@ -1,0 +1,5 @@
+/target
+/database
+/logs
+/.export
+.env
