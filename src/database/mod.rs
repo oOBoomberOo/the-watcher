@@ -50,7 +50,7 @@ pub fn throw(msg: impl Display) -> DatabaseError {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
-    #[serde(rename = "surreal_endpoint")]
+    #[serde(rename = "surreal_url")]
     url: Url,
     #[serde(flatten)]
     credentials: Option<DatabaseCredentials>,
@@ -58,13 +58,13 @@ pub struct DatabaseConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 struct DatabaseCredentials {
-    #[serde(rename = "surreal_database")]
+    #[serde(rename = "surreal_db")]
     database: String,
-    #[serde(rename = "surreal_namespace")]
+    #[serde(rename = "surreal_ns")]
     namespace: String,
-    #[serde(rename = "surreal_username")]
+    #[serde(rename = "surreal_name")]
     username: String,
-    #[serde(rename = "surreal_password")]
+    #[serde(rename = "surreal_pass")]
     password: String,
 }
 
