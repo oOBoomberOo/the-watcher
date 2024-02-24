@@ -10,7 +10,7 @@ RUN cargo build --release
 
 FROM debian:buster-slim
 
-RUN apt-get update && apt-get install -y libssl-dev pkg-config
+RUN apt-get update && apt-get install -y libssl-dev pkg-config ca-certificates
 COPY --from=builder /usr/src/kitsune/target/release/kitsune /usr/local/bin/kitsune
 
 ENTRYPOINT [ "/usr/local/bin/kitsune" ]
