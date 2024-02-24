@@ -1,30 +1,20 @@
+use chrono::Utc;
 use dashmap::DashMap;
 use futures::{Future, StreamExt};
-use serde::Deserialize;
 use snafu::ResultExt as _;
+use surrealdb::sql::Thing;
 use surrealdb::Action;
 use tokio::select;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tracing::instrument;
 
 use crate::database::database;
 use crate::error::{ActiveTrackersSnafu, ApplicationError, WatchTrackersSnafu};
 use crate::model::{Tracker, TrackerData};
 use crate::time;
+use crate::youtube::YouTube;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Tick {
-    pub tracker: String,
-    pub video: String,
-    pub milestone: Option<u64>,
-}
-
-impl Tick {
-    pub fn exceed_milestone(&self, views: u64) -> bool {
-        self.milestone.map_or(false, |milestone| views >= milestone)
-    }
-}
-
-pub type TrackerId = String;
+pub type TrackerId = Thing;
 
 pub(super) enum Event {
     Add { tracker: Tracker },
@@ -34,17 +24,16 @@ pub(super) enum Event {
 
 pub(super) type State = DashMap<TrackerId, Task>;
 
-pub(super) async fn get_trackers() -> Result<(State, Receiver<Event>), ApplicationError> {
-    let (tx, rx) = tokio::sync::mpsc::channel(100);
+pub(super) async fn get_trackers() -> Result<(State, UnboundedReceiver<Event>), ApplicationError> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
     let state = DashMap::new();
 
     let active_trackers = Tracker::all_active().await.context(ActiveTrackersSnafu)?;
+    tracing::info!(count = active_trackers.len(), "found active trackers");
 
     for tracker in active_trackers {
-        tx.send(Event::Add { tracker })
-            .await
-            .expect("send add event");
+        tx.send(Event::Add { tracker }).expect("send add event");
     }
 
     let stream = database()
@@ -73,7 +62,6 @@ pub(super) async fn get_trackers() -> Result<(State, Receiver<Event>), Applicati
             match action {
                 Action::Update if tracker.is_stopped() => {
                     tx.send(Event::Stop { id: tracker.id })
-                        .await
                         .expect("send stop event");
                 }
                 Action::Update => {
@@ -82,16 +70,13 @@ pub(super) async fn get_trackers() -> Result<(State, Receiver<Event>), Applicati
                         data: tracker.data,
                     };
 
-                    tx.send(event).await.expect("send update event");
+                    tx.send(event).expect("send update event");
                 }
                 Action::Create => {
-                    tx.send(Event::Add { tracker })
-                        .await
-                        .expect("send add event");
+                    tx.send(Event::Add { tracker }).expect("send add event");
                 }
                 Action::Delete => {
                     tx.send(Event::Stop { id: tracker.id })
-                        .await
                         .expect("send stop event");
                 }
 
@@ -105,23 +90,24 @@ pub(super) async fn get_trackers() -> Result<(State, Receiver<Event>), Applicati
 
 pub(super) async fn manage_trackers(
     state: State,
-    mut trackers: Receiver<Event>,
-    ticker: Sender<Tick>,
+    mut trackers: UnboundedReceiver<Event>,
+    youtube: YouTube,
 ) {
     while let Some(event) = trackers.recv().await {
         match event {
-            Event::Add { tracker } => add_tracker(&state, &ticker, tracker),
-            Event::Update { id, data } => update_tracker(&state, &ticker, &id, data),
+            Event::Add { tracker } => add_tracker(&state, youtube.clone(), tracker),
+            Event::Update { id, data } => update_tracker(&state, youtube.clone(), &id, data),
             Event::Stop { id } => remove_tracker(&state, &id),
         }
     }
 }
 
-fn add_tracker(state: &State, tx: &Sender<Tick>, tracker: Tracker) {
+#[instrument(skip(youtube, state))]
+fn add_tracker(state: &State, youtube: YouTube, tracker: Tracker) {
     tracing::info!(%tracker.id, "received add tracker event");
 
     tracing::info!(?tracker, "added tracker");
-    let task = run_tracker(tracker.id.clone(), tracker.data, tx.clone());
+    let task = run_tracker(tracker.id.clone(), tracker.data, youtube);
     state.insert(tracker.id, task);
 }
 
@@ -134,7 +120,8 @@ fn remove_tracker(state: &State, id: &TrackerId) {
     };
 }
 
-fn update_tracker(state: &State, tx: &Sender<Tick>, id: &TrackerId, data: TrackerData) {
+#[instrument(skip(youtube, state))]
+fn update_tracker(state: &State, youtube: YouTube, id: &TrackerId, data: TrackerData) {
     tracing::info!(%id, "received update tracker event");
 
     let Some((id, old_task)) = state.remove(id) else {
@@ -145,7 +132,7 @@ fn update_tracker(state: &State, tx: &Sender<Tick>, id: &TrackerId, data: Tracke
     old_task.stop();
     tracing::info!(tracker.id = %id, tracker.data = ?data, "updated tracker");
 
-    let task = run_tracker(id.clone(), data, tx.clone());
+    let task = run_tracker(id.clone(), data, youtube);
     state.insert(id.clone(), task);
 }
 
@@ -170,11 +157,14 @@ impl Task {
     }
 }
 
-fn run_tracker(id: TrackerId, tracker: TrackerData, events: Sender<Tick>) -> Task {
+#[instrument(skip(youtube))]
+fn run_tracker(id: TrackerId, tracker: TrackerData, youtube: YouTube) -> Task {
     let (stop, mut signal) = tokio::sync::oneshot::channel();
 
     Task::new(stop, async move {
         let mut timer = time::timer(tracker.scheduled_on, tracker.interval);
+
+        record(&id, &tracker, &youtube).await;
 
         loop {
             select! {
@@ -185,16 +175,28 @@ fn run_tracker(id: TrackerId, tracker: TrackerData, events: Sender<Tick>) -> Tas
 
                 time = timer.tick() => {
                     tracing::debug!(tracker.id = %id, timestamp = ?time, "tracker ticked");
-
-                    let tick = Tick {
-                        tracker: id.clone(),
-                        video: tracker.video.clone(),
-                        milestone: tracker.milestone,
-                    };
-
-                    events.send(tick).await.expect("send tick");
+                    record(&id, &tracker, &youtube).await;
                 }
             }
         }
     })
+}
+
+#[instrument(skip(youtube))]
+async fn record(id: &TrackerId, tracker: &TrackerData, youtube: &YouTube) {
+    let now = Utc::now();
+
+    let stats = match youtube.stats_info(&tracker.video).await {
+        Ok(stats) => stats,
+        Err(error) => {
+            tracing::error!(%error, "could not fetch video stats");
+            return;
+        }
+    };
+
+    if tracker.exceed_milestone(stats.views) {
+        super::recorder::stop_tracker(id).await;
+    }
+
+    super::recorder::record_stats(id, stats, now).await;
 }

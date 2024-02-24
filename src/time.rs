@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use chrono::{Local, NaiveDateTime, Utc};
+use chrono::Utc;
 use tracing::instrument;
 
 pub type Timestamp = chrono::DateTime<Utc>;
@@ -30,25 +30,9 @@ fn duration_to_next_instant(start: Timestamp, interval: Interval, now: Timestamp
     let elapsed = (now - start).num_seconds();
     let seconds_left = elapsed % period;
 
-    assert!(seconds_left > 0, "seconds left must be positive");
+    assert!(seconds_left >= 0, "seconds left must be positive");
 
     Duration::from_secs(seconds_left as u64)
-}
-
-pub fn parse_timestamp(input: &str) -> Result<Timestamp, chrono::ParseError> {
-    let local = NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M")?;
-    let timestamp = local
-        .and_local_timezone(Local)
-        .earliest()
-        .expect("timestamp is not valid");
-
-    let normalized = timestamp.with_timezone(&Utc);
-
-    Ok(normalized)
-}
-
-pub fn parse_interval(input: u64) -> Interval {
-    Duration::from_secs(input).into()
 }
 
 #[cfg(test)]

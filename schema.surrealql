@@ -10,16 +10,9 @@ DEFINE TABLE trackers SCHEMAFULL;
   DEFINE FIELD interval ON trackers TYPE duration;
   DEFINE FIELD milestone ON trackers TYPE option<int>;
   DEFINE FIELD stopped_at ON trackers TYPE option<datetime>;
-  DEFINE FIELD owner ON trackers TYPE record<users>;
 
 DEFINE TABLE records SCHEMAFULL;
 	DEFINE FIELD created_at ON records VALUE time::now() READONLY;
   DEFINE FIELD tracker ON records TYPE record<trackers>;
 	DEFINE FIELD views ON records TYPE int;
   DEFINE FIELD likes ON records TYPE int;
-
-DEFINE TABLE users SCHEMAFULL;
-	DEFINE FIELD created_at ON users VALUE time::now() READONLY;
-	DEFINE FIELD username ON users TYPE string;
-		DEFINE INDEX unique_username ON users FIELDS username UNIQUE;
-	DEFINE FIELD password ON users TYPE string;

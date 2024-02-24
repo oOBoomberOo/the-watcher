@@ -1,12 +1,13 @@
 use query::Only;
 use serde::{Deserialize, Serialize};
+use surrealdb::sql::Thing;
 
 use crate::database::query;
 use crate::time::{Interval, Timestamp};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Tracker {
-    pub id: String,
+    pub id: Thing,
     pub created_at: Timestamp,
     pub stopped_at: Option<Timestamp>,
     #[serde(flatten)]
@@ -24,47 +25,8 @@ impl Tracker {
     }
 
     query! {
-        search(text: &str) -> Vec<Tracker> where
-            "SELECT *, search::highlight('<b>', '</b>', 1) as title FROM trackers WHERE $text = '' OR title @1@ $text OR video CONTAINS $text ORDER BY created_at DESC"
-    }
-
-    query! {
-        by_id(id: &str) -> Only<Tracker> where
-            "SELECT * FROM trackers WHERE id = $id"
-    }
-
-    query! {
-        create(data: TrackerData) -> Only<Tracker> where
-            "CREATE trackers CONTENTS $data"
-    }
-
-    query! {
-        update(id: &str, data: TrackerData) -> Only<Tracker> where
-            "UPDATE $id MERGE $data"
-    }
-
-    query! {
-        stop(id: &str) -> Only<Tracker> where
+        stop(id: &Thing) -> Only<Tracker> where
             "UPDATE $id SET stopped_at = time::now()"
-    }
-
-    query! {
-        records(tracker: &str) -> Vec<StaggeredRecord> where
-            r#"
-            SELECT
-                count() as repeat,
-                views,
-                array::last(likes),
-                array::last(created_at)
-            FROM
-                records
-            WHERE
-                tracker = $tracker
-            GROUP BY
-                views
-            ORDER BY
-                created_at DESC
-            "#
     }
 }
 
@@ -76,18 +38,24 @@ pub struct TrackerData {
     pub milestone: Option<u64>,
 }
 
+impl TrackerData {
+    pub fn exceed_milestone(&self, views: u64) -> bool {
+        self.milestone.map_or(false, |milestone| views >= milestone)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Record {
-    pub id: String,
-    pub tracker: String,
+    pub id: Thing,
+    pub tracker: Thing,
     pub views: u64,
     pub likes: u64,
 }
 
 impl Record {
     query! {
-        create(tracker: &str, views: u64, likes: u64) -> Only<Record> where
-            "CREATE records SET tracker = $tracker, views = $views, likes = $likes"
+        create(tracker: &Thing, views: u64, likes: u64, created_at: Timestamp) -> Only<Record> where
+            "CREATE records SET tracker = $tracker, views = $views, likes = $likes, created_at = $created_at"
     }
 }
 

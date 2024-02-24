@@ -4,7 +4,7 @@ use snafu::ResultExt;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt::layer;
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::registry;
+use tracing_subscriber::{registry, EnvFilter, Layer};
 
 use crate::config::Config;
 use crate::error::{ApplicationError, InitializeLoggerSnafu};
@@ -19,7 +19,10 @@ pub fn init(config: &Config) -> Result<WorkerGuard, ApplicationError> {
         (layer, guard)
     };
 
-    let console_layer = layer().pretty().with_writer(std::io::stdout);
+    let console_layer = layer()
+        .pretty()
+        .with_writer(std::io::stdout)
+        .with_filter(EnvFilter::from_default_env());
 
     let subscriber = registry().with(console_layer).with(file_layer);
     tracing::subscriber::set_global_default(subscriber).context(InitializeLoggerSnafu)?;
