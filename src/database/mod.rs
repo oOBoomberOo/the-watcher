@@ -19,6 +19,8 @@ pub use query::Query;
 pub type Result<T, E = DatabaseError> = std::result::Result<T, E>;
 pub type DatabaseError = surrealdb::Error;
 
+const SETUP: &str = include_str!("../../schema.surrealql");
+
 pub async fn connect(config: &DatabaseConfig) -> Result<(), ApplicationError> {
     database()
         .connect(config.url.as_str())
@@ -31,6 +33,11 @@ pub async fn connect(config: &DatabaseConfig) -> Result<(), ApplicationError> {
             .await
             .context(ConnectDatabaseSnafu)?;
     }
+
+    database()
+        .query(SETUP)
+        .await
+        .context(ConnectDatabaseSnafu)?;
 
     Ok(())
 }
