@@ -1,7 +1,7 @@
 DEFINE ANALYZER video_title TOKENIZERS class FILTERS lowercase,ngram(2,5);
 
 DEFINE TABLE trackers SCHEMAFULL;
-  DEFINE FIELD created_at ON trackers VALUE time::now() READONLY;
+  DEFINE FIELD created_at ON trackers VALUE time::now();
   DEFINE FIELD title ON trackers TYPE string;
     DEFINE INDEX video_title_search ON trackers COLUMNS title
 		  SEARCH ANALYZER video_title BM25 HIGHLIGHTS;
@@ -12,7 +12,7 @@ DEFINE TABLE trackers SCHEMAFULL;
   DEFINE FIELD stopped_at ON trackers TYPE option<datetime>;
 
 DEFINE TABLE records SCHEMAFULL;
-	DEFINE FIELD created_at ON records VALUE time::now() READONLY;
+	DEFINE FIELD created_at ON records VALUE time::now();
   DEFINE FIELD tracker ON records TYPE record<trackers>;
 	DEFINE FIELD views ON records TYPE int;
   DEFINE FIELD likes ON records TYPE int;
