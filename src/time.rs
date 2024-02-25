@@ -9,7 +9,9 @@ pub type Interval = surrealdb::sql::Duration;
 
 #[instrument]
 pub fn timer(start: Timestamp, interval: Interval) -> tokio::time::Interval {
-    let start = tokio::time::Instant::now() + duration_to_next_instant(start, interval, Utc::now());
+    let duration = duration_to_next_instant(start, interval, Utc::now());
+    tracing::debug!(?duration, "will start ticking tracker in");
+    let start = tokio::time::Instant::now() + duration;
     let period = *interval;
 
     let mut timer = tokio::time::interval_at(start, period);
@@ -28,7 +30,7 @@ fn duration_to_next_instant(start: Timestamp, interval: Interval, now: Timestamp
 
     let period = interval.secs() as i64;
     let elapsed = (now - start).num_seconds();
-    let seconds_left = elapsed % period;
+    let seconds_left = period - elapsed % period;
 
     assert!(seconds_left >= 0, "seconds left must be positive");
 
@@ -62,7 +64,7 @@ mod tests {
     #[test]
     fn already_running_interval() {
         let now = Utc::now();
-        let scheduled = now - Duration::days(1) + Duration::minutes(15);
+        let scheduled = now - Duration::hours(1) + Duration::minutes(15);
         let interval = interval(Duration::hours(1));
 
         let result = duration_to_next_instant(scheduled, interval, now);

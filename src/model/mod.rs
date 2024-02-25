@@ -2,7 +2,7 @@ use query::Only;
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 
-use crate::database::query;
+use crate::database::{database, query, DatabaseError};
 use crate::time::{Interval, Timestamp};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -65,4 +65,21 @@ pub struct StaggeredRecord {
     pub views: u64,
     pub likes: u64,
     pub created_at: Timestamp,
+}
+
+pub mod log {
+    use super::*;
+
+    pub fn error(message: String, tracker: Thing) {
+        tokio::spawn(async move {
+            database()
+                .query("LET $log = (CREATE logs SET type = 'error', message = $message, created_at = time::now() RETURN *)")
+                .query("LET $log_id = $log.id")
+                .query("RELATE $tracker->wrote->$log_id")
+                .bind(("message", message))
+                .bind(("tracker", tracker))
+                .await
+                .expect("executed surrealql query");
+        });
+    }
 }

@@ -10,7 +10,7 @@ use tracing::instrument;
 
 use crate::database::database;
 use crate::error::{ActiveTrackersSnafu, ApplicationError, WatchTrackersSnafu};
-use crate::model::{Tracker, TrackerData};
+use crate::model::{log, Tracker, TrackerData};
 use crate::time;
 use crate::youtube::YouTube;
 
@@ -190,6 +190,10 @@ async fn record(id: &TrackerId, tracker: &TrackerData, youtube: &YouTube) {
         Ok(stats) => stats,
         Err(error) => {
             tracing::error!(%error, "could not fetch video stats");
+
+            let message = format!("could not fetch video stats: {error}");
+            log::error(message, id.clone());
+
             return;
         }
     };

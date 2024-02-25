@@ -1,5 +1,5 @@
-use invidious::ClientAsyncTrait;
 use invidious::MethodAsync::Reqwest;
+use invidious::{ClientAsyncTrait, InvidiousError};
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt as _, Snafu};
 use tracing::instrument;
@@ -42,11 +42,7 @@ pub struct YouTube {
 impl YouTube {
     #[instrument(skip(self))]
     pub async fn stats_info(&self, video_id: &str) -> Result<Stats, YouTubeError> {
-        let response = self
-            .invidious
-            .video(video_id, None)
-            .await
-            .context(NotFoundSnafu { video_id })?;
+        let response = self.invidious.video(video_id, None).await?;
 
         Ok(Stats {
             likes: response.likes.into(),
@@ -76,9 +72,28 @@ pub enum YouTubeError {
     },
 
     /// The video doesn't exist or is private
-    #[snafu(display("The video doesn't exist or is private: {source}"))]
-    NotFound {
-        video_id: String,
-        source: invidious::InvidiousError,
-    },
+    #[snafu(display("The video doesn't exist or is private: {message}"))]
+    NotFound { message: String },
+
+    #[snafu(display("{message}"))]
+    Network { message: String },
+
+    #[snafu(display("Cannot deserialize response from `{original}`: {error}"))]
+    InvalidResponse { error: String, original: String },
+}
+
+impl From<InvidiousError> for YouTubeError {
+    fn from(value: InvidiousError) -> Self {
+        match value {
+            InvidiousError::ApiError { message } => YouTubeError::NotFound { message },
+            InvidiousError::Fetch { error } => YouTubeError::Network {
+                message: error.to_string(),
+            },
+            InvidiousError::Message { message } => YouTubeError::Network { message },
+            InvidiousError::SerdeError { error, original } => YouTubeError::InvalidResponse {
+                error: error.to_string(),
+                original: original.unwrap_or_default(),
+            },
+        }
+    }
 }
