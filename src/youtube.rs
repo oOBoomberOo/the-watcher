@@ -1,7 +1,9 @@
 use invidious::MethodAsync::Reqwest;
 use invidious::{ClientAsyncTrait, InvidiousError};
 use serde::{Deserialize, Serialize};
-use snafu::{ResultExt as _, Snafu};
+use snafu::Snafu;
+use tokio_retry::strategy::{jitter, ExponentialBackoff};
+use tokio_retry::Retry;
 use tracing::instrument;
 
 use crate::time::Timestamp;
@@ -42,7 +44,22 @@ pub struct YouTube {
 impl YouTube {
     #[instrument(skip(self))]
     pub async fn stats_info(&self, video_id: &str) -> Result<Stats, YouTubeError> {
-        let response = self.invidious.video(video_id, None).await?;
+        let strategy = ExponentialBackoff::from_millis(1000).map(jitter).take(3);
+
+        let client = self.invidious.clone();
+        let video_id = video_id.to_owned();
+
+        Retry::spawn(strategy, || {
+            Self::get_stats(client.clone(), video_id.clone())
+        })
+        .await
+    }
+
+    async fn get_stats(
+        invidious: invidious::ClientAsync,
+        video_id: String,
+    ) -> Result<Stats, YouTubeError> {
+        let response = invidious.video(&video_id, None).await?;
 
         Ok(Stats {
             likes: response.likes.into(),
