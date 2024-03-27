@@ -1,7 +1,7 @@
 use invidious::MethodAsync::Reqwest;
 use invidious::{ClientAsyncTrait, InvidiousError};
 use serde::{Deserialize, Serialize};
-use snafu::Snafu;
+use snafu::{OptionExt, ResultExt, Snafu};
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
 use tracing::instrument;
@@ -42,24 +42,34 @@ pub struct YouTube {
 }
 
 impl YouTube {
-    #[instrument(skip(self))]
+    // #[instrument(skip(self))]
     pub async fn stats_info(&self, video_id: &str) -> Result<Stats, YouTubeError> {
-        let strategy = ExponentialBackoff::from_millis(1000).map(jitter).take(3);
+        tracing::info!(video_id, "fetching video");
+        // let strategy = ExponentialBackoff::from_millis(1000).map(jitter).take(3);
 
         let client = self.invidious.clone();
         let video_id = video_id.to_owned();
 
-        Retry::spawn(strategy, || {
-            Self::get_stats(client.clone(), video_id.clone())
-        })
-        .await
+        // Retry::spawn(strategy, || {
+        //     Self::get_stats(client.clone(), video_id.clone())
+        // })
+        // .await
+
+        Self::get_stats(client.clone(), video_id.clone()).await
     }
 
     async fn get_stats(
         invidious: invidious::ClientAsync,
         video_id: String,
     ) -> Result<Stats, YouTubeError> {
-        let response = invidious.video(&video_id, None).await?;
+        let task = tokio::task::spawn(async move {
+            invidious
+                .video(&video_id, None)
+                .await
+                .map_err(YouTubeError::from)
+        });
+
+        let response = task.await.ok().context(JoinSnafu)??;
 
         Ok(Stats {
             likes: response.likes.into(),
@@ -97,6 +107,9 @@ pub enum YouTubeError {
 
     #[snafu(display("Cannot deserialize response from `{original}`: {error}"))]
     InvalidResponse { error: String, original: String },
+
+    #[snafu(display("panicked"))]
+    JoinError,
 }
 
 impl From<InvidiousError> for YouTubeError {

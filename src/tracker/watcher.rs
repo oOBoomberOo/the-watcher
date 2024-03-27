@@ -1,6 +1,6 @@
 use chrono::Utc;
 use dashmap::DashMap;
-use futures::{Future, StreamExt};
+use futures::{Future, FutureExt, StreamExt};
 use snafu::ResultExt as _;
 use surrealdb::sql::Thing;
 use surrealdb::Action;
@@ -175,6 +175,7 @@ fn run_tracker(id: TrackerId, tracker: TrackerData, youtube: YouTube) -> Task {
 
                 time = timer.tick() => {
                     tracing::debug!(tracker.id = %id, timestamp = ?time, "tracker ticked");
+
                     record(&id, &tracker, &youtube).await;
                 }
             }
@@ -182,16 +183,23 @@ fn run_tracker(id: TrackerId, tracker: TrackerData, youtube: YouTube) -> Task {
     })
 }
 
-#[instrument(skip(youtube))]
 async fn record(id: &TrackerId, tracker: &TrackerData, youtube: &YouTube) {
     let now = Utc::now();
 
-    let stats = match youtube.stats_info(&tracker.video).await {
-        Ok(stats) => stats,
-        Err(error) => {
+    let stats = match youtube.stats_info(&tracker.video).catch_unwind().await {
+        Ok(Ok(stats)) => stats,
+        Ok(Err(error)) => {
             tracing::error!(%error, "could not fetch video stats");
 
             let message = format!("could not fetch video stats: {error}");
+            log::error(message, id.clone());
+
+            return;
+        }
+        Err(_) => {
+            tracing::error!("could not fetch video stats: panic while recording stats!");
+
+            let message = r#"could not fetch video stats: panic while recording stats"#.to_string();
             log::error(message, id.clone());
 
             return;
